@@ -103,7 +103,7 @@ export interface SolvedPath {
 
 
 // ==========================================
-// 3. Generator Inputs (Configuration)
+// 3. Player Event (for scripting calls/riichi)
 // ==========================================
 
 /**
@@ -111,7 +111,7 @@ export interface SolvedPath {
  * Used to "script" any player's call/riichi behavior
  */
 export interface PlayerEvent {
-  turn: number;
+  turn?: number;
   type: 'CHI' | 'PON' | 'MINKAN' | 'ANKAN' | 'KAKAN' | 'RIICHI';
   // For chi/pon/minkan
   callTarget?: TileId;    // Which tile was called (undefined for ANKAN)
@@ -120,26 +120,16 @@ export interface PlayerEvent {
   discardTile?: TileId;   // The riichi declaration tile
 }
 
-export interface OpponentConfig {
-  seat: 1 | 2 | 3; 
-  events: PlayerEvent[]; // Preset key events for this opponent
-}
-
-export interface GeneratorConfig {
-  heroTargetHand: TileId[];
-  heroDiscards: TileId[];
-  opponents: OpponentConfig[]; 
-}
-
 
 // ==========================================
-// 4. Tenhou Log JSON Output Structure
+// 4. Tenhou Log JSON Structure (Input & Output)
 // ==========================================
 
 /**
  * Tenhou Log "draw/incoming tile" slot
  * - Normal draw: number (e.g., 11, 25, 47)
  * - Chi/Pon/Kan: string with position-encoded source player
+ * - Unknown (for input): null
  * 
  * ============================================================
  * Call String Format Reference:
@@ -169,7 +159,7 @@ export interface GeneratorConfig {
  * 
  * ============================================================
  */
-export type TenhouJsonDraw = number | string;
+export type TenhouJsonDraw = number | string | null;
 
 /**
  * Tenhou Log "discard" slot
@@ -177,6 +167,7 @@ export type TenhouJsonDraw = number | string;
  * - Tsumogiri: 60 (discard the tile just drawn, 摸切)
  * - Riichi declaration: string (e.g., "r15" for hand discard, "r60" for tsumogiri riichi)
  * - Kan placeholder: 0 (CRITICAL: must appear after kan declaration, before rinshan draw)
+ * - Unknown (for input): null
  * 
  * ============================================================
  * Kan Discard Sequence Example:
@@ -190,7 +181,7 @@ export type TenhouJsonDraw = number | string;
  * Without it, the Tenhou viewer will misalign all subsequent turns.
  * ============================================================
  */
-export type TenhouJsonDiscard = number | string;
+export type TenhouJsonDiscard = number | string | null;
 
 /**
  * Player data block [haipai, draws, discards]
@@ -294,6 +285,55 @@ export type RoundLog = [
   // Result
   ResultBlock
 ];
+
+/**
+ * Generator input structure
+ * 
+ * Uses RoundLog + PlayerEvent[] as input, sharing structure with output.
+ * 
+ * ============================================================
+ * Input Conventions:
+ * ============================================================
+ * 
+ * The `roundLog` field uses RoundLog structure with these conventions:
+ * 
+ * 1. haipai (手牌):
+ *    - Hero: complete 13 tiles
+ *    - Opponents: empty array []
+ * 
+ * 2. draws (摸牌):
+ *    - Known values: normal TileId or call string
+ *    - Unknown: `null`
+ *    - Array can be truncated (shorter = remaining unknown)
+ * 
+ * 3. discards (舍牌):
+ *    - Known values: normal TileId, 60, riichi string, or 0
+ *    - Unknown: `null`
+ *    - Array can be truncated (shorter = remaining unknown)
+ * 
+ * Example partial input:
+ *   draws:    [11, 23, null, null, ...]  // first 2 known, rest unknown
+ *   discards: [12, 60, 15, null, ...]    // first 3 known, rest unknown
+ *   
+ * Or truncated:
+ *   draws:    [11, 23]        // only first 2 known
+ *   discards: [12, 60, 15]    // only first 3 known
+ * 
+ * ============================================================
+ */
+export interface GeneratorInput {
+  /** RoundLog with null for unknown draws/discards */
+  roundLog: RoundLog;
+  
+  /** Player events for all 4 seats [East, South, West, North] */
+  playerEvents: [PlayerEvent[], PlayerEvent[], PlayerEvent[], PlayerEvent[]];
+  
+  /** Which seat is the hero (has complete haipai) */
+  heroSeat: 0 | 1 | 2 | 3;
+  
+  /** Game rule config (mainly for aka/red dora count) */
+  rule: TenhouRule;
+}
 
 /**
  * Tenhou game rule configuration

@@ -12,25 +12,25 @@ import type {
 import { removeTilesFromDeck, shuffle, toNormal } from '../../utils/tile';
 
 /**
- * NaiveSolver - 补全输入的 Tenhou Log 中的未知部分
+ * NaiveSolver - Complete unknown parts of input Tenhou Log
  *
- * 舍牌优先级：
- * 1. 现物（如果有人立直：立直家的舍牌 + 立直后所有人的舍牌）
- * 2. 字牌 (41-47)
+ * Discard priority:
+ * 1. Genbutsu (safe tiles) (if someone riichi'd: riichi player's discards + all discards after riichi)
+ * 2. Honor tiles (41-47)
  * 3. 19 (x1, x9)
  * 4. 28 (x2, x8)
  * 5. 37 (x3, x7)
  * 6. 456 (x4, x5, x6)
  *
- * 同优先级随机选择
+ * Random selection within same priority
  */
 
 // ==========================================
 // Priority Constants
 // ==========================================
 
-const PRIORITY_GENBUTSU = 0; // 现物 - 最高优先级
-const PRIORITY_HONOR = 1; // 字牌
+const PRIORITY_GENBUTSU = 0; // Genbutsu (safe tiles) - highest priority
+const PRIORITY_HONOR = 1; // Honor tiles
 const PRIORITY_TERMINAL = 2; // 19
 const PRIORITY_28 = 3; // 28
 const PRIORITY_37 = 4; // 37
@@ -42,7 +42,7 @@ const PRIORITY_456 = 5; // 456
 
 interface ScheduledEvent extends PlayerEvent {
   seat: number;
-  turn: number; // 确定后的回合数
+  turn: number; // Determined turn number
   processed: boolean;
 }
 
@@ -51,17 +51,17 @@ interface ScheduledEvent extends PlayerEvent {
 // ==========================================
 
 /**
- * 获取牌的舍牌优先级（不考虑现物）
+ * Get tile discard priority (excluding genbutsu)
  */
 function getBasePriority(tile: TileId): number {
   const normal = toNormal(tile);
 
-  // 字牌 41-47
+  // Honor tiles 41-47
   if (normal >= 41 && normal <= 47) {
     return PRIORITY_HONOR;
   }
 
-  // 数牌
+  // Number tiles
   const num = normal % 10;
   if (num === 1 || num === 9) return PRIORITY_TERMINAL;
   if (num === 2 || num === 8) return PRIORITY_28;
@@ -70,7 +70,7 @@ function getBasePriority(tile: TileId): number {
 }
 
 /**
- * 从 discard 中提取实际的 TileId
+ * Extract actual TileId from discard
  */
 function extractTileFromDiscard(discard: TenhouJsonDiscard): TileId | null {
   if (discard === null || discard === 0) return null;
@@ -79,7 +79,7 @@ function extractTileFromDiscard(discard: TenhouJsonDiscard): TileId | null {
     return discard === 60 ? null : discard;
   }
 
-  // 立直字符串 "r15" -> 15, "r60" -> null
+  // Riichi string "r15" -> 15, "r60" -> null
   if (typeof discard === 'string' && discard.startsWith('r')) {
     const tileStr = discard.slice(1);
     const tileNum = parseInt(tileStr, 10);
@@ -90,14 +90,14 @@ function extractTileFromDiscard(discard: TenhouJsonDiscard): TileId | null {
 }
 
 /**
- * 检查 discard 是否为立直宣言
+ * Check if discard is riichi declaration
  */
 function isRiichiDiscard(discard: TenhouJsonDiscard): boolean {
   return typeof discard === 'string' && discard.startsWith('r');
 }
 
 /**
- * 检查是否为副露字符串
+ * Check if string is call (meld)
  */
 function isCallString(draw: TenhouJsonDraw): boolean {
   if (typeof draw !== 'string') return false;
@@ -111,7 +111,7 @@ function isCallString(draw: TenhouJsonDraw): boolean {
 }
 
 /**
- * 检查是否为杠（明杠、暗杠、加杠）
+ * Check if kan (minkan, ankan, kakan)
  */
 function isKanString(draw: TenhouJsonDraw): boolean {
   if (typeof draw !== 'string') return false;
@@ -119,7 +119,7 @@ function isKanString(draw: TenhouJsonDraw): boolean {
 }
 
 /**
- * 从副露字符串中提取相关的牌
+ * Extract related tiles from call string
  */
 function extractTilesFromCallString(callStr: string): TileId[] {
   const tiles: TileId[] = [];
@@ -137,14 +137,14 @@ function extractTilesFromCallString(callStr: string): TileId[] {
 }
 
 /**
- * 格式化牌号为两位字符串
+ * Format tile number as 2-digit string
  */
 function formatTile(tile: TileId): string {
   return tile.toString().padStart(2, '0');
 }
 
 /**
- * 生成吃的副露字符串
+ * Build chi call string
  * Chi: "c" + called_tile + hand_tile1 + hand_tile2
  */
 function buildChiString(
@@ -155,11 +155,11 @@ function buildChiString(
 }
 
 /**
- * 生成碰的副露字符串
+ * Build pon call string
  * Pon: "p" position indicates source
- *   Index 0: from kamicha  → "p181818"
- *   Index 2: from toimen   → "18p1818"
- *   Index 4: from shimocha → "1818p18"
+ *   Index 0: from kamicha (left player)  → "p181818"
+ *   Index 2: from toimen (across player)   → "18p1818"
+ *   Index 4: from shimocha (right player) → "1818p18"
  */
 function buildPonString(
   calledTile: TileId,
@@ -173,23 +173,23 @@ function buildPonString(
   const tc = formatTile(calledTile);
 
   if (relPos === 3) {
-    // kamicha (上家)
+    // kamicha (left player)
     return `p${tc}${t1}${t2}`;
   } else if (relPos === 2) {
-    // toimen (対面)
+    // toimen (across player)
     return `${tc}p${t1}${t2}`;
   } else {
-    // shimocha (下家, relPos === 1)
+    // shimocha (right player, relPos === 1)
     return `${t1}${t2}p${tc}`;
   }
 }
 
 /**
- * 生成明杠的副露字符串
+ * Build minkan call string
  * Minkan: "m" position indicates source
- *   Index 0: from kamicha  → "m38383838"
- *   Index 2: from toimen   → "38m383838"
- *   Index 6: from shimocha → "383838m38"
+ *   Index 0: from kamicha (left player)  → "m38383838"
+ *   Index 2: from toimen (across player)   → "38m383838"
+ *   Index 6: from shimocha (right player) → "383838m38"
  */
 function buildMinkanString(
   calledTile: TileId,
@@ -204,19 +204,19 @@ function buildMinkanString(
   const t3 = formatTile(meldTiles[2]);
 
   if (relPos === 3) {
-    // kamicha (上家)
+    // kamicha (left player)
     return `m${tc}${t1}${t2}${t3}`;
   } else if (relPos === 2) {
-    // toimen (対面)
+    // toimen (across player)
     return `${tc}m${t1}${t2}${t3}`;
   } else {
-    // shimocha (下家, relPos === 1)
+    // shimocha (right player, relPos === 1)
     return `${t1}${t2}${t3}m${tc}`;
   }
 }
 
 /**
- * 生成暗杠的副露字符串
+ * Build ankan call string
  * Ankan: "a" always at index 6
  *   "151515a15"
  */
@@ -229,7 +229,7 @@ function buildAnkanString(meldTiles: TileId[]): string {
 }
 
 /**
- * 生成加杠的副露字符串
+ * Build kakan call string
  * Kakan: "k" position matches original pon
  */
 function buildKakanString(
@@ -245,19 +245,19 @@ function buildKakanString(
   const t3 = formatTile(originalPonTiles[2]);
 
   if (relPos === 3) {
-    // kamicha (上家)
+    // kamicha (left player)
     return `k${tc}${t1}${t2}${t3}`;
   } else if (relPos === 2) {
-    // toimen (対面)
+    // toimen (across player)
     return `${tc}k${t1}${t2}${t3}`;
   } else {
-    // shimocha (下家, relPos === 1)
+    // shimocha (right player, relPos === 1)
     return `${t1}${t2}k${tc}${t3}`;
   }
 }
 
 /**
- * 获取 aka 数量配置
+ * Get aka (red dora) count config
  */
 function getAkaCount(rule: TenhouRule): {
   aka51: number;
@@ -275,7 +275,7 @@ function getAkaCount(rule: TenhouRule): {
 }
 
 /**
- * 生成带有自定义赤牌数量的牌山
+ * Generate deck with custom red dora count
  */
 function generateDeckWithAka(akaCount: {
   aka51: number;
@@ -328,6 +328,9 @@ export class NaiveSolver {
   private scheduledEvents: ScheduledEvent[];
   private ponRegistry: Map<number, { tiles: TileId[]; fromSeat: number }[]>; // seat -> list of pons
   private lateEventStartTurn: number;
+  private heroPreGeneratedDraws: TileId[] = [];
+  private heroTargetFinalHand: TileId[] = [];
+  private heroLastTurn: number = -1; // Hero's last turn (draw only, no discard)
 
   constructor(input: GeneratorInput) {
     this.input = input;
@@ -337,15 +340,15 @@ export class NaiveSolver {
     this.ponRegistry = new Map();
     this.lateEventStartTurn = 0;
 
-    // 初始化牌山
+    // Initialize deck
     this.deck = this.initializeDeck();
 
-    // 处理 playerEvents
+    // Process playerEvents
     this.processPlayerEvents();
   }
 
   /**
-   * 初始化牌山，移除已知的牌
+   * Initialize deck, remove known tiles
    */
   private initializeDeck(): TileId[] {
     const { rule, roundLog, playerEvents } = this.input;
@@ -354,18 +357,23 @@ export class NaiveSolver {
     let deck = generateDeckWithAka(akaCount);
     const knownTiles: TileId[] = [];
 
-    // Dora 指示牌
+    // Dora indicators
     knownTiles.push(...(roundLog[2] as number[]));
     knownTiles.push(...(roundLog[3] as number[]));
 
-    // 四家的手牌和已知的摸牌/舍牌
+    // 4 players' hands and known draws/discards
+    // Note: Hero's haipai is "final hand", not "starting hand", so don't remove from deck
+    const { heroSeat } = this.input;
     for (let seat = 0; seat < 4; seat++) {
       const baseIdx = 4 + seat * 3;
       const haipai = roundLog[baseIdx] as TileId[];
       const draws = roundLog[baseIdx + 1] as TenhouJsonDraw[];
       const discards = roundLog[baseIdx + 2] as TenhouJsonDiscard[];
 
-      knownTiles.push(...haipai);
+      // Hero's haipai is final hand, needs special handling (handled in solve())
+      if (seat !== heroSeat) {
+        knownTiles.push(...haipai);
+      }
 
       for (const draw of draws) {
         if (draw !== null) {
@@ -385,8 +393,8 @@ export class NaiveSolver {
       }
     }
 
-    // 从 playerEvents 中移除 callMelds（副露者手里的牌）
-    // 注意：不移除 callTarget，它来自别人的舍牌，需要留在牌山里被分配
+    // Remove callMelds from playerEvents (caller's hand tiles)
+    // Note: Don't remove callTarget, it comes from others' discards, needs to stay in deck
     for (let seat = 0; seat < 4; seat++) {
       const events = playerEvents[seat];
       for (const event of events) {
@@ -401,7 +409,7 @@ export class NaiveSolver {
   }
 
   /**
-   * 处理 playerEvents，确定每个事件的回合
+   * Process playerEvents, determine turn for each event
    */
   private processPlayerEvents(): void {
     const { playerEvents } = this.input;
@@ -413,14 +421,14 @@ export class NaiveSolver {
         const scheduledEvent: ScheduledEvent = {
           ...event,
           seat,
-          turn: event.turn ?? -1, // -1 表示需要推算
+          turn: event.turn ?? -1, // -1 means needs auto-determination
           processed: false,
         };
         this.scheduledEvents.push(scheduledEvent);
       }
     }
 
-    // 对有明确 turn 的事件排序
+    // Sort events with explicit turn
     this.scheduledEvents.sort((a, b) => {
       if (a.turn === -1 && b.turn === -1) return 0;
       if (a.turn === -1) return 1;
@@ -430,7 +438,7 @@ export class NaiveSolver {
   }
 
   /**
-   * 查找需要在指定回合触发的事件
+   * Find event to trigger at specified turn
    */
   private findEventForTurn(
     seat: number,
@@ -441,15 +449,15 @@ export class NaiveSolver {
       if (event.processed) continue;
       if (event.seat !== seat) continue;
 
-      // 如果有明确的 turn，检查是否匹配
+      // If explicit turn, check if matches
       if (event.turn !== -1 && event.turn !== turn) continue;
 
-      // 对于需要推算 turn 的事件，检查条件是否满足
+      // For events needing auto-determination, check if conditions met
       if (event.turn === -1) {
         switch (event.type) {
           case 'CHI': {
             if (turn < this.lateEventStartTurn) break;
-            // 吃需要上家打出 callTarget
+            // Chi requires kamicha to discard callTarget
             const kamicha = (seat + 3) % 4;
             if (
               lastDiscard &&
@@ -465,7 +473,7 @@ export class NaiveSolver {
           case 'PON':
           case 'MINKAN': {
             if (turn < this.lateEventStartTurn) break;
-            // 碰/明杠需要他家打出 callTarget
+            // Pon/Minkan requires other player to discard callTarget
             if (
               lastDiscard &&
               lastDiscard.seat !== seat &&
@@ -480,13 +488,13 @@ export class NaiveSolver {
           case 'ANKAN':
           case 'KAKAN':
           case 'RIICHI': {
-            // 这些在自己的回合触发，简单地返回第一个未处理的
+            // These trigger on own turn, simply return first unprocessed
             event.turn = turn;
             return event;
           }
         }
       } else {
-        // turn 已经匹配
+        // Turn already matches
         return event;
       }
     }
@@ -494,7 +502,7 @@ export class NaiveSolver {
   }
 
   /**
-   * 从牌山中抽一张牌
+   * Draw tile from deck
    */
   private drawFromDeck(): TileId {
     if (this.deck.length === 0) {
@@ -506,7 +514,7 @@ export class NaiveSolver {
 
 
   /**
-   * 记录立直
+   * Record riichi
    */
   private recordRiichi(seat: number, turn: number, discards: TenhouJsonDiscard[]): void {
     const riichiDiscards: TileId[] = [];
@@ -523,7 +531,7 @@ export class NaiveSolver {
   }
 
   /**
-   * 确保舍牌数组长度足够
+   * Ensure discard array has enough length
    */
   private ensureDiscardSlot(discards: TenhouJsonDiscard[], turn: number): void {
     while (discards.length <= turn) {
@@ -532,7 +540,7 @@ export class NaiveSolver {
   }
 
   /**
-   * 如果该回合舍牌未知（null），则强制写入目标牌
+   * If discard unknown (null) for this turn, force write target tile
    */
   private setDiscardIfUnknown(
     roundLog: RoundLog,
@@ -550,16 +558,16 @@ export class NaiveSolver {
   }
 
   /**
-   * 强制从手牌中“消费”一张牌（不足则移除手牌中其他牌，并从牌山扣除该牌）
+   * Force "consume" a tile from hand (if not found, remove another tile and deduct from deck)
    */
   private forceConsumeTileFromHand(seat: number, tile: TileId, hands: TileId[][]): void {
     const removed = this.removeFromHand(hands[seat], tile);
     if (removed) return;
 
-    // 牌不在手里：交换一张手牌和目标牌（保持总牌数不变）
+    // Tile not in hand: swap a hand tile with target (keep total count unchanged)
     if (hands[seat].length > 0) {
       const poppedTile = hands[seat].pop()!;
-      this.deck.push(poppedTile); // 被移除的牌放回牌山
+      this.deck.push(poppedTile); // Put removed tile back to deck
     } else {
       console.warn(`[NaiveSolver] Hand is empty when forcing tile ${tile}`);
     }
@@ -568,7 +576,7 @@ export class NaiveSolver {
   }
 
   /**
-   * 确保手牌中存在所需的牌（不足则补齐并从牌山移除）
+   * Ensure required tiles exist in hand (fill from deck if needed)
    */
   private ensureTilesInHand(seat: number, tiles: TileId[], hands: TileId[][]): void {
     for (const tile of tiles) {
@@ -577,7 +585,7 @@ export class NaiveSolver {
   }
 
   /**
-   * 在输入中寻找“谁打出了目标牌”的座位
+   * Find seat of player who discarded target tile
    */
   private findSeatByDiscard(
     roundLog: RoundLog,
@@ -599,13 +607,13 @@ export class NaiveSolver {
   }
 
   /**
-   * 根据 playerEvents 提前锁定“被吃/碰/明杠”的舍牌
+   * Pre-lock discards for chi/pon/minkan based on playerEvents
    */
   private applyPlannedCallDiscards(roundLog: RoundLog): void {
     for (const event of this.scheduledEvents) {
       if (event.turn === -1) continue;
       if (event.callTarget === undefined) continue;
-      const sourceTurn = event.turn; // 同巡的舍牌
+      const sourceTurn = event.turn; // Same-turn discard
 
       if (event.type === 'CHI') {
         const fromSeat = this.getKamicha(event.seat);
@@ -626,7 +634,7 @@ export class NaiveSolver {
   }
 
   /**
-   * 获取当前座位需要“打出”以触发副露的目标牌
+   * Get target tiles current seat needs to discard to trigger calls
    */
   private getPendingCallTargetsForSeat(seat: number): TileId[] {
     const targets: TileId[] = [];
@@ -646,7 +654,7 @@ export class NaiveSolver {
   }
 
   /**
-   * 更新现物集合
+   * Update genbutsu set
    */
   private updateGenbutsu(tile: TileId, currentTurn: number): void {
     for (const [, info] of this.riichiInfo) {
@@ -657,30 +665,30 @@ export class NaiveSolver {
   }
 
   /**
-   * 获取当前座位需要保留的牌（自己副露用 + 需要打出给别人吃碰的 + 立直要打的牌）
+   * Get tiles to reserve for current seat (for own calls + to discard for others' calls + riichi tile)
    */
   private getReservedTilesForSeat(seat: number): TileId[] {
     const reserved: TileId[] = [];
     for (const event of this.scheduledEvents) {
       if (event.processed) continue;
 
-      // 自己副露需要的 callMelds
+      // Own callMelds for calls
       if (event.seat === seat && event.callMelds) {
         reserved.push(...event.callMelds);
       }
 
-      // 自己立直需要打的牌
+      // Own riichi discard tile
       if (event.seat === seat && event.type === 'RIICHI' && event.discardTile !== undefined) {
         reserved.push(event.discardTile);
       }
 
-      // 需要打出给别人吃碰的 callTarget
+      // callTarget to discard for others' calls
       if (event.callTarget !== undefined && event.turn !== -1) {
         let fromSeat: number;
         if (event.type === 'CHI') {
           fromSeat = this.getKamicha(event.seat);
         } else if (event.type === 'PON' || event.type === 'MINKAN') {
-          // 简化：假设上家打出
+          // Simplified: assume kamicha discards
           fromSeat = this.getKamicha(event.seat);
         } else {
           continue;
@@ -694,14 +702,19 @@ export class NaiveSolver {
   }
 
   /**
-   * 根据优先级选择舍牌
+   * Select discard by priority
+   * 
+   * Hero special: prioritize discarding tiles not in targetFinalHand to ensure correct final hand
    */
   private selectDiscard(hand: TileId[], seat: number): TileId {
     if (hand.length === 0) {
       throw new Error('[NaiveSolver] Hand is empty, cannot select discard');
     }
 
-    // 获取该座位为未来副露保留的牌
+    const { heroSeat } = this.input;
+    const isHero = seat === heroSeat;
+
+    // Get tiles reserved for future calls for this seat
     const reserved = this.getReservedTilesForSeat(seat);
     const reservedCounts: Map<number, number> = new Map();
     for (const t of reserved) {
@@ -709,11 +722,20 @@ export class NaiveSolver {
       reservedCounts.set(n, (reservedCounts.get(n) ?? 0) + 1);
     }
 
-    // 统计手牌中每种牌的数量
+    // Count each tile type in hand
     const handCounts: Map<number, number> = new Map();
     for (const t of hand) {
       const n = toNormal(t);
       handCounts.set(n, (handCounts.get(n) ?? 0) + 1);
+    }
+
+    // Hero special: count required amount of each tile in targetFinalHand
+    let targetCounts: Map<number, number> = new Map();
+    if (isHero && this.heroTargetFinalHand.length > 0) {
+      for (const t of this.heroTargetFinalHand) {
+        const n = toNormal(t);
+        targetCounts.set(n, (targetCounts.get(n) ?? 0) + 1);
+      }
     }
 
     const groups: Map<number, TileId[]> = new Map();
@@ -721,19 +743,32 @@ export class NaiveSolver {
     for (const tile of hand) {
       const normalTile = toNormal(tile);
 
-      // 如果这张牌是保留牌且手里没有多余的，跳过
+      // If tile is reserved and no extras in hand, skip
       const neededCount = reservedCounts.get(normalTile) ?? 0;
       const haveCount = handCounts.get(normalTile) ?? 0;
       if (neededCount > 0 && haveCount <= neededCount) {
-        continue; // 不能打这张牌
+        continue; // Cannot discard this tile
       }
 
       let priority: number;
 
-      if (this.genbutsu.has(normalTile)) {
-        priority = PRIORITY_GENBUTSU;
+      // Hero special priority: tiles not in targetFinalHand have highest discard priority
+      if (isHero && this.heroTargetFinalHand.length > 0) {
+        const targetNeed = targetCounts.get(normalTile) ?? 0;
+        if (haveCount > targetNeed) {
+          // Have extras (more than final hand needs), prioritize discarding
+          priority = -1; // Highest priority
+        } else {
+          // Hand count <= final needed count, should not discard
+          continue;
+        }
       } else {
-        priority = getBasePriority(tile);
+        // Normal priority for non-Hero
+        if (this.genbutsu.has(normalTile)) {
+          priority = PRIORITY_GENBUTSU;
+        } else {
+          priority = getBasePriority(tile);
+        }
       }
 
       if (!groups.has(priority)) {
@@ -742,7 +777,7 @@ export class NaiveSolver {
       groups.get(priority)!.push(tile);
     }
 
-    // 如果所有牌都被保留，退而求其次打任意一张
+    // If all tiles reserved (or all Hero's tiles needed for final), fall back to random
     if (groups.size === 0) {
       const idx = Math.floor(Math.random() * hand.length);
       return hand[idx];
@@ -755,7 +790,7 @@ export class NaiveSolver {
   }
 
   /**
-   * 从手牌中移除一张牌
+   * Remove one tile from hand
    */
   private removeFromHand(hand: TileId[], tile: TileId): boolean {
     const idx = hand.indexOf(tile);
@@ -763,7 +798,7 @@ export class NaiveSolver {
       hand.splice(idx, 1);
       return true;
     }
-    // 尝试匹配 normalized 值
+    // Try matching normalized value
     const normalIdx = hand.findIndex((t) => toNormal(t) === toNormal(tile));
     if (normalIdx > -1) {
       hand.splice(normalIdx, 1);
@@ -773,7 +808,7 @@ export class NaiveSolver {
   }
 
   /**
-   * 从手牌中移除多张牌
+   * Remove multiple tiles from hand
    */
   private removeMultipleFromHand(hand: TileId[], tiles: TileId[]): void {
     for (const tile of tiles) {
@@ -782,38 +817,45 @@ export class NaiveSolver {
   }
 
   /**
-   * 获取上家座位号
+   * Get kamicha (left player) seat number
    */
   private getKamicha(seat: number): number {
     return (seat + 3) % 4;
   }
 
   /**
-   * 执行求解
+   * Execute solving
+   * 
+   * Important: Hero's input haipai is treated as "final hand" (hand at round end),
+   * not starting hand. Solver will back-calculate starting hand.
    */
   solve(): RoundLog {
     const { roundLog, heroSeat } = this.input;
 
-    // 深拷贝 roundLog
+    // Deep copy roundLog
     const result: RoundLog = JSON.parse(JSON.stringify(roundLog));
 
-    // 0. 根据 playerEvents 预先锁定必要的舍牌
+    // Hero's input is treated as target final hand
+    const heroBaseIdx = 4 + heroSeat * 3;
+    const targetFinalHand = [...(result[heroBaseIdx] as TileId[])];
+
+    // 0. Pre-lock necessary discards based on playerEvents
     this.applyPlannedCallDiscards(result);
 
-    // 1. 收集每家需要的牌
-    // callMelds: 副露者手里的牌（已从牌山移除，直接添加到 haipai）
-    // callTarget: 打出者需要的牌（还在牌山里，需要移除）
-    // riichiTile: 立直者需要打的牌（还在牌山里，需要移除）
+    // 1. Collect tiles needed by each player
+    // callMelds: caller's hand tiles (removed from deck, add directly to haipai)
+    // callTarget: discarder's tiles (still in deck, need to remove)
+    // riichiTile: riichi player's discard tile (still in deck, need to remove)
     const callMeldsBySeats: TileId[][] = [[], [], [], []];
     const callTargetsBySeats: TileId[][] = [[], [], [], []];
     const riichiTilesBySeats: TileId[][] = [[], [], [], []];
 
     for (const event of this.scheduledEvents) {
-      // callMelds 给副露者（已从牌山移除）
+      // callMelds go to caller (removed from deck)
       if (event.callMelds) {
         callMeldsBySeats[event.seat].push(...event.callMelds);
       }
-      // callTarget 给打出者（还在牌山）
+      // callTarget go to discarder (still in deck)
       if (event.callTarget !== undefined && event.turn !== -1) {
         let fromSeat: number;
         if (event.type === 'CHI') {
@@ -826,12 +868,12 @@ export class NaiveSolver {
         } else {
           continue;
         }
-        // 只有非 Hero 才需要处理
+        // Only non-Hero needs processing
         if (fromSeat !== heroSeat) {
           callTargetsBySeats[fromSeat].push(event.callTarget);
         }
       }
-      // 立直打出的牌（还在牌山）
+      // Riichi discard tile (still in deck)
       if (event.type === 'RIICHI' && event.discardTile !== undefined) {
         if (event.seat !== heroSeat) {
           riichiTilesBySeats[event.seat].push(event.discardTile);
@@ -839,36 +881,94 @@ export class NaiveSolver {
       }
     }
 
-    // 2. 补全对手手牌
+    // 2. Fill opponent hands
     for (let seat = 0; seat < 4; seat++) {
       if (seat === heroSeat) continue;
       const baseIdx = 4 + seat * 3;
       const haipai = result[baseIdx] as TileId[];
 
-      // 先放入 callMelds（已从牌山移除，直接添加）
+      // First add callMelds (removed from deck, add directly)
       for (const tile of callMeldsBySeats[seat]) {
         haipai.push(tile);
       }
 
-      // 再放入 callTarget（需要从牌山移除）
+      // Then add callTarget (need to remove from deck)
       for (const tile of callTargetsBySeats[seat]) {
         haipai.push(tile);
         this.deck = removeTilesFromDeck(this.deck, [tile]);
       }
 
-      // 放入立直要打的牌（需要从牌山移除）
+      // Add riichi discard tile (need to remove from deck)
       for (const tile of riichiTilesBySeats[seat]) {
         haipai.push(tile);
         this.deck = removeTilesFromDeck(this.deck, [tile]);
       }
 
-      // 随机补满 13 张
+      // Fill to 13 tiles randomly
       while (haipai.length < 13) {
         haipai.push(this.drawFromDeck());
       }
     }
 
-    // 2. 第一遍扫描：找出所有已知的立直
+    // 2.5 Handle Hero's hand: back-calculate starting hand from final hand
+    // targetFinalHand is user-specified final hand (14 tiles, including last draw)
+    // Need: pre-generate draws -> calculate starting hand (13 tiles)
+    {
+      const heroDraws = result[heroBaseIdx + 1] as TenhouJsonDraw[];
+      const heroDiscards = result[heroBaseIdx + 2] as TenhouJsonDiscard[];
+      
+      // Estimate required turn count
+      let estimatedTurns = Math.max(heroDraws.length, heroDiscards.length);
+      const maxEventTurn = this.scheduledEvents
+        .filter(e => e.turn !== -1)
+        .reduce((max, e) => Math.max(max, e.turn), -1);
+      if (maxEventTurn >= 0) {
+        estimatedTurns = Math.max(estimatedTurns, maxEventTurn + 1);
+      }
+      if (estimatedTurns < 3) estimatedTurns = 6; // Default minimum 6 turns
+      
+      // 14-tile final = 13-tile starting + 1 last draw
+      // Starting hand = first 13, 14th = last turn draw
+      const heroStartingHaipai = targetFinalHand.slice(0, 13);
+      const heroLastDraw = targetFinalHand.length >= 14 ? targetFinalHand[13] : null;
+      
+      // Remove starting hand tiles from deck (will be assigned to hero as haipai)
+      this.deck = removeTilesFromDeck(this.deck, heroStartingHaipai);
+      // Also remove last draw from deck (will be drawn on last turn)
+      if (heroLastDraw !== null) {
+        this.deck = removeTilesFromDeck(this.deck, [heroLastDraw]);
+      }
+      
+      // Pre-generate Hero's draws (except last turn)
+      const preGeneratedDraws: TileId[] = [];
+      for (let t = 0; t < estimatedTurns; t++) {
+        if (t === estimatedTurns - 1 && heroLastDraw !== null) {
+          // Use 14th tile for last turn
+          preGeneratedDraws.push(heroLastDraw);
+        } else if (t < heroDraws.length && heroDraws[t] !== null) {
+          // Known draw
+          if (typeof heroDraws[t] === 'number') {
+            preGeneratedDraws.push(heroDraws[t] as TileId);
+          }
+          // Call strings don't count as normal draws
+        } else {
+          // Random draw
+          preGeneratedDraws.push(this.drawFromDeck());
+        }
+      }
+      
+      // Update Hero's starting hand in roundLog (13 tiles)
+      (result[heroBaseIdx] as TileId[]).length = 0;
+      (result[heroBaseIdx] as TileId[]).push(...heroStartingHaipai);
+      
+      // Save pre-generated draws and target final hand (for later use)
+      // Note: heroTargetFinalHand stores 13 (starting), used for discard selection
+      this.heroPreGeneratedDraws = preGeneratedDraws;
+      this.heroTargetFinalHand = heroStartingHaipai; // 13 starting = tiles to keep
+      this.heroLastTurn = estimatedTurns - 1; // Record last turn, no discard on this turn
+    }
+
+    // 2. First scan: find all known riichi
     for (let seat = 0; seat < 4; seat++) {
       const baseIdx = 4 + seat * 3;
       const discards = result[baseIdx + 2] as TenhouJsonDiscard[];
@@ -879,7 +979,7 @@ export class NaiveSolver {
       }
     }
 
-    // 3. 计算巡数：以四家舍牌数组的最大长度为基准
+    // 3. Calculate turns: use max discard array length as base
     let maxTurns = 0;
     for (let seat = 0; seat < 4; seat++) {
       const baseIdx = 4 + seat * 3;
@@ -892,21 +992,21 @@ export class NaiveSolver {
     if (maxExplicitTurn >= 0) {
       maxTurns = Math.max(maxTurns, maxExplicitTurn + 1);
     }
-    // 副露默认靠近终局触发（倒数 4 巡内）
+    // Calls default to trigger near end (within last 4 turns)
     this.lateEventStartTurn = Math.max(0, maxTurns - 4);
 
-    // 4. 维护每个玩家的当前手牌
+    // 4. Maintain each player's current hand
     const hands: TileId[][] = [];
     for (let seat = 0; seat < 4; seat++) {
       const baseIdx = 4 + seat * 3;
       hands[seat] = [...(result[baseIdx] as TileId[])];
     }
 
-    // 5. 记录每家最后的舍牌（用于判断副露时机）
+    // 5. Record each player's last discard (for call timing)
     const lastDiscardBySeat: Map<number, { tile: TileId; turn: number }> = new Map();
     let lastDiscard: { seat: number; tile: TileId } | null = null;
 
-    // 6. 按巡处理
+    // 6. Process by turn
     for (let turn = 0; turn < maxTurns; turn++) {
       for (let seat = 0; seat < 4; seat++) {
         const baseIdx = 4 + seat * 3;
@@ -915,27 +1015,27 @@ export class NaiveSolver {
         const pendingTargets =
           turn >= this.lateEventStartTurn ? this.getPendingCallTargetsForSeat(seat) : [];
 
-        // 确保数组足够长
+        // Ensure array is long enough
         while (draws.length <= turn) draws.push(null);
         while (discards.length <= turn) discards.push(null);
 
         let currentDraw = draws[turn];
         let currentDiscard = discards[turn];
 
-        // === 检查是否有 playerEvent 需要触发 ===
+        // === Check if playerEvent needs triggering ===
         const event = this.findEventForTurn(seat, turn, lastDiscard);
 
         if (event && !event.processed) {
-          // 处理事件
+          // Process event
           switch (event.type) {
             case 'CHI': {
               if (event.callTarget !== undefined && event.callMelds) {
-                // 吃必定来自上家，不需要编码来源
+                // Chi always from kamicha, no source encoding needed
                 const callStr = buildChiString(event.callTarget, event.callMelds);
                 draws[turn] = callStr;
                 currentDraw = callStr;
 
-                // 从手牌中移除用于吃的牌
+                // Remove chi tiles from hand
                 this.ensureTilesInHand(seat, event.callMelds, hands);
               }
               event.processed = true;
@@ -943,14 +1043,14 @@ export class NaiveSolver {
             }
             case 'PON': {
               if (event.callTarget !== undefined) {
-                // 找出是谁打的牌：优先使用实际触发副露的 lastDiscard
+                // Find who discarded: prefer actual lastDiscard that triggered call
                 let fromSeat = -1;
                 if (lastDiscard && toNormal(lastDiscard.tile) === toNormal(event.callTarget)) {
                   fromSeat = lastDiscard.seat;
                 }
                 if (fromSeat === -1) fromSeat = this.getKamicha(seat);
 
-                // 从手牌中找出用于碰的牌
+                // Find pon tiles from hand
                 const meldTiles: TileId[] = event.callMelds ?? [];
                 if (meldTiles.length < 2) {
                   const normalTarget = toNormal(event.callTarget);
@@ -965,10 +1065,10 @@ export class NaiveSolver {
                 draws[turn] = callStr;
                 currentDraw = callStr;
 
-                // 从手牌中移除
+                // Remove from hand
                 this.ensureTilesInHand(seat, meldTiles, hands);
 
-                // 记录碰（用于后续加杠）
+                // Record pon (for later kakan)
                 if (!this.ponRegistry.has(seat)) {
                   this.ponRegistry.set(seat, []);
                 }
@@ -982,7 +1082,7 @@ export class NaiveSolver {
             }
             case 'MINKAN': {
               if (event.callTarget !== undefined) {
-                // 找出是谁打的牌：优先使用实际触发副露的 lastDiscard
+                // Find who discarded: prefer actual lastDiscard that triggered call
                 let fromSeat = -1;
                 if (lastDiscard && toNormal(lastDiscard.tile) === toNormal(event.callTarget)) {
                   fromSeat = lastDiscard.seat;
@@ -1005,7 +1105,7 @@ export class NaiveSolver {
 
                 this.ensureTilesInHand(seat, meldTiles, hands);
 
-                // 杠的舍牌为 0
+                // Kan discard = 0
                 discards[turn] = 0;
                 currentDiscard = 0;
               }
@@ -1029,7 +1129,7 @@ export class NaiveSolver {
             }
             case 'KAKAN': {
               if (event.callTarget !== undefined) {
-                // 找到对应的碰
+                // Find corresponding pon
                 const pons = this.ponRegistry.get(seat) ?? [];
                 const normalTarget = toNormal(event.callTarget);
                 const ponInfo = pons.find(
@@ -1056,17 +1156,22 @@ export class NaiveSolver {
               break;
             }
             case 'RIICHI': {
-              // 立直会在舍牌时处理，这里不标记 processed
+              // Riichi handled during discard, don't mark processed here
               break;
             }
           }
         }
 
-        // === 处理摸牌 ===
+        // === Process draw ===
         let drawnTile: TileId | null = null;
 
         if (currentDraw === null) {
-          drawnTile = this.drawFromDeck();
+          // Hero uses pre-generated draws
+          if (seat === heroSeat && turn < this.heroPreGeneratedDraws.length) {
+            drawnTile = this.heroPreGeneratedDraws[turn];
+          } else {
+            drawnTile = this.drawFromDeck();
+          }
           draws[turn] = drawnTile;
         } else if (typeof currentDraw === 'number') {
           drawnTile = currentDraw;
@@ -1078,9 +1183,19 @@ export class NaiveSolver {
           hands[seat].push(drawnTile);
         }
 
-        // === 处理舍牌 ===
+        // === Process discard ===
+        // Hero's last turn: draw only (keep 14 tiles)
+        if (seat === heroSeat && turn === this.heroLastTurn) {
+          // Last turn no discard, truncate discards array
+          // So hero's discards has one less element than draws, indicating no discard yet
+          if (discards.length > turn) {
+            discards.length = turn;
+          }
+          continue;
+        }
+        
         if (currentDiscard === null) {
-          // 检查是否有立直事件
+          // Check for riichi event
           const riichiEvent = this.scheduledEvents.find(
             (e) =>
               e.seat === seat &&
@@ -1089,9 +1204,10 @@ export class NaiveSolver {
               (e.turn === -1 || e.turn === turn)
           );
 
-          if (riichiEvent && riichiEvent.discardTile !== undefined) {
-            // 立直
-            const discardTile = riichiEvent.discardTile;
+          if (riichiEvent) {
+            // Riichi
+            // If riichi tile not specified, select random
+            const discardTile = riichiEvent.discardTile ?? this.selectDiscard(hands[seat], seat);
             const isTsumogiri = drawnTile !== null && toNormal(drawnTile) === toNormal(discardTile);
             discards[turn] = isTsumogiri ? 'r60' : `r${formatTile(discardTile)}`;
 
@@ -1105,7 +1221,7 @@ export class NaiveSolver {
             }
             riichiEvent.processed = true;
           } else if (turn > 0 && isKanString(draws[turn - 1])) {
-            // 岭上开花后的舍牌
+            // Discard after rinshan draw
             const discardTile = this.selectDiscard(hands[seat], seat);
             discards[turn] = discardTile;
             this.removeFromHand(hands[seat], discardTile);
@@ -1137,7 +1253,7 @@ export class NaiveSolver {
             lastDiscard = { seat, tile: discardTile };
           }
         } else if (currentDiscard === 0) {
-          // 杠占位符
+          // Kan placeholder
         } else {
           let discardTile: TileId | null = null;
 
@@ -1179,7 +1295,7 @@ export class NaiveSolver {
 // ==========================================
 
 /**
- * 便捷函数：补全输入的 Tenhou Log
+ * Convenience function: complete input Tenhou Log
  */
 export function solve(input: GeneratorInput): RoundLog {
   const solver = new NaiveSolver(input);

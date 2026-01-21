@@ -29,28 +29,28 @@ export interface GeneratorOptions {
 // ==========================================
 
 /**
- * 检查单个玩家的数据是否完整（无需补全）
+ * Check if a single player's data is complete (no completion needed)
  * 
- * 注意：这是"完整性检查"，不是"合法性验证"
- * - 完整性检查：是否有 null 需要补全？
- * - 合法性验证：数据格式是否正确？（见 validator.ts）
+ * Note: This is a "completeness check", not a "validity validation"
+ * - Completeness check: Are there any null values that need completion?
+ * - Validity validation: Is the data format correct? (see validator.ts)
  */
 function isPlayerDataComplete(
   haipai: TileId[],
   draws: TenhouJsonDraw[],
   discards: TenhouJsonDiscard[]
 ): boolean {
-  // 手牌必须有 13 张（空数组表示需要补全）
+  // Hand must have 13 tiles (empty array means needs completion)
   if (haipai.length !== 13) {
     return false;
   }
 
-  // 检查 draws 中是否有 null（null 表示需要补全）
+  // Check if draws has null (null means needs completion)
   if (draws.some((d) => d === null)) {
     return false;
   }
 
-  // 检查 discards 中是否有 null（null 表示需要补全）
+  // Check if discards has null (null means needs completion)
   if (discards.some((d) => d === null)) {
     return false;
   }
@@ -59,10 +59,10 @@ function isPlayerDataComplete(
 }
 
 /**
- * 检查 RoundLog 是否完整（没有需要补全的 null 值）
+ * Check if RoundLog is complete (no null values that need completion)
  * 
- * 这只检查"是否需要调用 NaiveSolver"，不验证数据合法性。
- * 如需验证合法性，请使用 validator.ts 中的 validateRoundLog()
+ * This only checks "whether NaiveSolver needs to be called", not data validity.
+ * For validity validation, use validateRoundLog() in validator.ts
  */
 export function isRoundLogComplete(roundLog: RoundLog): boolean {
   for (let seat = 0; seat < 4; seat++) {
@@ -80,7 +80,7 @@ export function isRoundLogComplete(roundLog: RoundLog): boolean {
 }
 
 /**
- * 检查 GeneratorInput 是否完整
+ * Check if GeneratorInput is complete
  */
 export function isInputComplete(input: GeneratorInput): boolean {
   return isRoundLogComplete(input.roundLog);
@@ -91,11 +91,11 @@ export function isInputComplete(input: GeneratorInput): boolean {
 // ==========================================
 
 /**
- * 生成默认的 timestamp (GMT格式)
+ * Generate default timestamp (GMT format)
  */
 function generateTimestamp(): string {
   const now = new Date();
-  // 格式: "2024/01/15 12:34 GMT"
+  // Format: "2024/01/15 12:34 GMT"
   const year = now.getUTCFullYear();
   const month = String(now.getUTCMonth() + 1).padStart(2, '0');
   const day = String(now.getUTCDate()).padStart(2, '0');
@@ -105,16 +105,16 @@ function generateTimestamp(): string {
 }
 
 /**
- * 生成默认的规则显示名称
+ * Generate default rule display name
  */
 function generateRuleDisplay(rule: TenhouRule): string {
   const aka = rule.aka ?? rule.aka51 ?? 1;
-  // 简化: 有赤就是 "赤"
+  // Simplified: if has red dora, include "赤" in display
   return aka > 0 ? '般東喰赤' : '般東喰';
 }
 
 /**
- * LogGenerator - 生成完整的 Tenhou Log JSON
+ * LogGenerator - Generate complete Tenhou Log JSON
  */
 export class LogGenerator {
   private input: GeneratorInput;
@@ -126,29 +126,29 @@ export class LogGenerator {
   }
 
   /**
-   * 生成完整的 TenhouLogJson
+   * Generate complete TenhouLogJson
    */
   generate(): TenhouLogJson {
     let roundLog: RoundLog;
 
-    // 检查是否需要补全
+    // Check if completion is needed
     if (isInputComplete(this.input)) {
-      // 牌谱完整，直接使用
+      // Log is complete, use directly
       roundLog = this.input.roundLog;
     } else {
-      // 牌谱不完整，使用 NaiveSolver 补全
+      // Log is incomplete, use NaiveSolver to complete
       const solver = new NaiveSolver(this.input);
       roundLog = solver.solve();
     }
 
-    // 构建 TenhouLogJson
+    // Build TenhouLogJson
     const {
-      roomName = '牌谱屋',
+      roomName = 'Paipu House',
       timestamp = generateTimestamp(),
-      playerNames = ['東家', '南家', '西家', '北家'],
+      playerNames = ['East', 'South', 'West', 'North'],
     } = this.options;
 
-    // 规则配置
+    // Rule configuration
     const rule: TenhouRule = {
       ...this.input.rule,
       disp: this.input.rule.disp ?? generateRuleDisplay(this.input.rule),
@@ -168,7 +168,7 @@ export class LogGenerator {
 // ==========================================
 
 /**
- * 便捷函数：从 GeneratorInput 生成 TenhouLogJson
+ * Convenience function: Generate TenhouLogJson from GeneratorInput
  */
 export function generate(
   input: GeneratorInput,
@@ -179,7 +179,7 @@ export function generate(
 }
 
 /**
- * 便捷函数：生成并返回 JSON 字符串
+ * Convenience function: Generate and return JSON string
  */
 export function generateJson(
   input: GeneratorInput,
@@ -191,7 +191,7 @@ export function generateJson(
 }
 
 /**
- * 便捷函数：仅补全 RoundLog（不生成完整 JSON）
+ * Convenience function: Only complete RoundLog (don't generate full JSON)
  */
 export function completeRoundLog(input: GeneratorInput): RoundLog {
   if (isInputComplete(input)) {

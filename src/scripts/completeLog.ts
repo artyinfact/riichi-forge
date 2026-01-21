@@ -1,26 +1,26 @@
 #!/usr/bin/env npx ts-node
 /**
- * completeLog.ts - 补全残缺的 Tenhou Log
+ * completeLog.ts - Complete incomplete Tenhou Log
  *
- * 输入: 包含残缺 RoundLog 和 PlayerEvent[] 的 GeneratorInput
- * 输出: 完整的 TenhouLogJson
+ * Input: GeneratorInput containing incomplete RoundLog and PlayerEvent[]
+ * Output: Complete TenhouLogJson
  *
- * 使用方式:
+ * Usage:
  *   npx ts-node src/scripts/completeLog.ts input.json [output.json]
  *   npx ts-node src/scripts/completeLog.ts --stdin < input.json
  *
- * 输入 JSON 格式 (GeneratorInput):
+ * Input JSON format (GeneratorInput):
  * {
- *   "roundLog": [...],           // RoundLog 结构，可含 null
- *   "playerEvents": [[...], [...], [...], [...]],  // 四家的事件
+ *   "roundLog": [...],           // RoundLog structure, may contain null
+ *   "playerEvents": [[...], [...], [...], [...]],  // Events for all 4 players
  *   "heroSeat": 0,               // 0-3
- *   "rule": { "aka": 1 }         // 规则配置
+ *   "rule": { "aka": 1 }         // Rule configuration
  * }
  *
- * 选项:
- *   --pretty    格式化输出 JSON
- *   --stdin     从标准输入读取
- *   --url       输出 Tenhou 播放器 URL
+ * Options:
+ *   --pretty    Format output JSON
+ *   --stdin     Read from standard input
+ *   --url       Output Tenhou player URL
  */
 
 import * as fs from 'fs';
@@ -31,7 +31,7 @@ import type { GeneratorOptions } from '../core/generator/LogGenerator';
 import { validateGeneratorInput, formatValidationResult } from '../utils/validator';
 
 // ==========================================
-// CLI 参数解析
+// CLI Argument Parsing
 // ==========================================
 
 interface CliArgs {
@@ -93,35 +93,35 @@ function printHelp(): void {
   console.log(`
 Usage: npx ts-node completeLog.ts [options] [input.json] [output.json]
 
-补全残缺的 Tenhou Log，输出完整的 TenhouLogJson。
+Complete incomplete Tenhou Log, output complete TenhouLogJson.
 
 Arguments:
-  input.json     输入文件 (GeneratorInput 格式)
-  output.json    输出文件 (可选，默认输出到 stdout)
+  input.json     Input file (GeneratorInput format)
+  output.json    Output file (optional, defaults to stdout)
 
 Options:
-  --stdin        从标准输入读取 JSON
-  --pretty, -p   格式化输出 JSON
-  --url, -u      输出 Tenhou 播放器 URL
-  --help, -h     显示帮助信息
+  --stdin        Read JSON from standard input
+  --pretty, -p   Format output JSON
+  --url, -u      Output Tenhou player URL
+  --help, -h     Show help information
 
 Examples:
-  # 从文件读取，输出到 stdout
+  # Read from file, output to stdout
   npx ts-node completeLog.ts input.json
 
-  # 从文件读取，输出到文件
+  # Read from file, output to file
   npx ts-node completeLog.ts input.json output.json
 
-  # 从 stdin 读取
+  # Read from stdin
   cat input.json | npx ts-node completeLog.ts --stdin
 
-  # 输出格式化 JSON 和 URL
+  # Output formatted JSON and URL
   npx ts-node completeLog.ts --pretty --url input.json
 `);
 }
 
 // ==========================================
-// 主逻辑
+// Main Logic
 // ==========================================
 
 async function readStdin(): Promise<string> {
@@ -153,7 +153,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // 读取输入
+  // Read input
   let inputJson: string;
 
   if (args.stdin) {
@@ -171,7 +171,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // 解析 JSON
+  // Parse JSON
   let input: GeneratorInput;
   try {
     input = JSON.parse(inputJson) as GeneratorInput;
@@ -181,7 +181,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // 验证输入
+  // Validate input
   const validationResult = validateGeneratorInput(input);
   if (!validationResult.valid) {
     console.error('Error: Invalid input');
@@ -194,15 +194,15 @@ async function main(): Promise<void> {
     console.warn(formatValidationResult(validationResult));
   }
 
-  // 生成完整的 log
+  // Generate complete log
   const options: GeneratorOptions = {
-    roomName: '牌谱屋',
-    playerNames: ['東家', '南家', '西家', '北家'],
+    roomName: 'Paipu House',
+    playerNames: ['East', 'South', 'West', 'North'],
   };
 
   const result = generate(input, options);
 
-  // 输出
+  // Output
   const outputJson = args.pretty
     ? JSON.stringify(result, null, 2)
     : JSON.stringify(result);
@@ -225,4 +225,3 @@ main().catch((err) => {
   console.error('Unexpected error:', err);
   process.exit(1);
 });
-

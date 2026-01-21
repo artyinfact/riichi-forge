@@ -31,26 +31,26 @@ export interface ValidationResult {
 // ==========================================
 
 /**
- * 检查是否为有效的 TileId
- * 有效范围: 11-19 (萬), 21-29 (筒), 31-39 (索), 41-47 (字), 51-53 (赤)
+ * Check if a valid TileId
+ * Valid range: 11-19 (man/characters), 21-29 (pin/circles), 31-39 (sou/bamboo), 41-47 (honors), 51-53 (red dora)
  */
 export function isValidTileId(tile: unknown): tile is TileId {
   if (typeof tile !== 'number') return false;
   
-  // 数牌
+  // Number tiles
   if (tile >= 11 && tile <= 19) return true;
   if (tile >= 21 && tile <= 29) return true;
   if (tile >= 31 && tile <= 39) return true;
-  // 字牌
+  // Honor tiles
   if (tile >= 41 && tile <= 47) return true;
-  // 赤牌
+  // Red dora
   if (tile >= 51 && tile <= 53) return true;
   
   return false;
 }
 
 /**
- * 验证牌数组（手牌、舍牌等）
+ * Validate tile array (hand, discards, etc.)
  */
 export function validateTileArray(
   tiles: unknown[],
@@ -60,8 +60,8 @@ export function validateTileArray(
   
   for (let i = 0; i < tiles.length; i++) {
     const tile = tiles[i];
-    if (tile === null) continue; // null 表示未知，跳过
-    if (typeof tile === 'string') continue; // 副露/立直字符串，单独验证
+    if (tile === null) continue; // null means unknown, skip
+    if (typeof tile === 'string') continue; // Call/riichi strings, validated separately
     
     if (!isValidTileId(tile)) {
       errors.push({
@@ -76,7 +76,7 @@ export function validateTileArray(
 }
 
 /**
- * 统计牌的使用数量，检查是否超过4张
+ * Count tile usage, check if exceeds 4
  */
 export function validateTileCount(
   allTiles: TileId[],
@@ -85,7 +85,7 @@ export function validateTileCount(
   const errors: ValidationError[] = [];
   const count: Map<number, number> = new Map();
   
-  // 获取赤牌配置
+  // Get red dora configuration
   const aka51 = rule.aka ?? rule.aka51 ?? 1;
   const aka52 = rule.aka ?? rule.aka52 ?? 1;
   const aka53 = rule.aka ?? rule.aka53 ?? 1;
@@ -94,17 +94,17 @@ export function validateTileCount(
     const normal = toNormal(tile);
     count.set(normal, (count.get(normal) || 0) + 1);
     
-    // 赤牌单独计数
+    // Count red dora separately
     if (tile === 51 || tile === 52 || tile === 53) {
-      const key = tile + 1000; // 用 1051, 1052, 1053 区分赤牌
+      const key = tile + 1000; // Use 1051, 1052, 1053 to distinguish red dora
       count.set(key, (count.get(key) || 0) + 1);
     }
   }
   
-  // 检查每种牌是否超过4张
+  // Check if any tile exceeds 4
   for (const [tile, cnt] of count) {
     if (tile > 1000) {
-      // 赤牌检查
+      // Red dora check
       const redTile = tile - 1000;
       const maxRed = redTile === 51 ? aka51 : redTile === 52 ? aka52 : aka53;
       if (cnt > maxRed) {
@@ -131,7 +131,7 @@ export function validateTileCount(
 // ==========================================
 
 /**
- * 验证副露字符串格式
+ * Validate call string format
  */
 export function validateCallString(
   callStr: string,
@@ -139,7 +139,7 @@ export function validateCallString(
 ): ValidationError[] {
   const errors: ValidationError[] = [];
   
-  // 检查类型标记
+  // Check type markers
   const hasC = callStr.includes('c');
   const hasP = callStr.includes('p');
   const hasM = callStr.includes('m');
@@ -157,7 +157,7 @@ export function validateCallString(
     return errors;
   }
   
-  // 提取牌号
+  // Extract tile numbers
   const cleaned = callStr.replace(/[cpamk]/g, '');
   if (cleaned.length % 2 !== 0) {
     errors.push({
@@ -182,7 +182,7 @@ export function validateCallString(
     tiles.push(tile);
   }
   
-  // 验证副露类型的牌数
+  // Validate tile count for call types
   if (hasC && tiles.length !== 3) {
     errors.push({
       field: fieldName,
@@ -205,7 +205,7 @@ export function validateCallString(
     });
   }
   
-  // 验证吃是顺子
+  // Validate chi is a sequence
   if (hasC && tiles.length === 3) {
     const sorted = tiles.map(toNormal).sort((a, b) => a - b);
     const isSequence =
@@ -223,7 +223,7 @@ export function validateCallString(
     }
   }
   
-  // 验证碰/杠是同种牌
+  // Validate pon/kan are same tiles
   if ((hasP || hasM || hasA || hasK) && tiles.length >= 3) {
     const normalTiles = tiles.map(toNormal);
     const allSame = normalTiles.every((t) => t === normalTiles[0]);
@@ -240,7 +240,7 @@ export function validateCallString(
 }
 
 /**
- * 验证立直字符串格式
+ * Validate riichi string format
  */
 export function validateRiichiString(
   riichiStr: string,
@@ -276,7 +276,7 @@ export function validateRiichiString(
 // ==========================================
 
 /**
- * 验证 RoundLog 结构
+ * Validate RoundLog structure
  */
 export function validateRoundLog(
   roundLog: RoundLog,
@@ -285,7 +285,7 @@ export function validateRoundLog(
   const errors: ValidationError[] = [];
   const warnings: ValidationError[] = [];
   
-  // 1. 验证基本结构
+  // 1. Validate basic structure
   if (!Array.isArray(roundLog) || roundLog.length < 17) {
     errors.push({
       field: 'roundLog',
@@ -295,7 +295,7 @@ export function validateRoundLog(
     return { valid: false, errors, warnings };
   }
   
-  // 2. 验证 round info
+  // 2. Validate round info
   const [roundInfo, startingPoints, doraIndicators, uraDoraIndicators] = roundLog;
   
   if (!Array.isArray(roundInfo) || roundInfo.length !== 3) {
@@ -314,16 +314,16 @@ export function validateRoundLog(
     });
   }
   
-  // 3. 验证 dora
+  // 3. Validate dora
   errors.push(...validateTileArray(doraIndicators, 'doraIndicators'));
   errors.push(...validateTileArray(uraDoraIndicators, 'uraDoraIndicators'));
   
-  // 4. 收集所有牌（用于计数验证）
+  // 4. Collect all tiles (for count validation)
   const allTiles: TileId[] = [];
   allTiles.push(...(doraIndicators.filter((t) => typeof t === 'number') as TileId[]));
   allTiles.push(...(uraDoraIndicators.filter((t) => typeof t === 'number') as TileId[]));
   
-  // 5. 验证四家数据
+  // 5. Validate all 4 players' data
   for (let seat = 0; seat < 4; seat++) {
     const baseIdx = 4 + seat * 3;
     const haipai = roundLog[baseIdx] as TileId[];
@@ -332,7 +332,7 @@ export function validateRoundLog(
     
     const seatName = ['East', 'South', 'West', 'North'][seat];
     
-    // 验证手牌
+    // Validate hand
     if (haipai.length > 0 && haipai.length !== 13) {
       warnings.push({
         field: `${seatName}.haipai`,
@@ -343,7 +343,7 @@ export function validateRoundLog(
     errors.push(...validateTileArray(haipai, `${seatName}.haipai`));
     allTiles.push(...haipai);
     
-    // 验证摸牌
+    // Validate draws
     for (let i = 0; i < draws.length; i++) {
       const draw = draws[i];
       if (draw === null) continue;
@@ -360,7 +360,7 @@ export function validateRoundLog(
         }
       } else if (typeof draw === 'string') {
         errors.push(...validateCallString(draw, `${seatName}.draws[${i}]`));
-        // 从副露字符串中提取牌
+        // Extract tiles from call string
         const cleaned = draw.replace(/[cpamk]/g, '');
         for (let j = 0; j < cleaned.length; j += 2) {
           const tile = parseInt(cleaned.slice(j, j + 2), 10);
@@ -371,11 +371,11 @@ export function validateRoundLog(
       }
     }
     
-    // 验证舍牌
+    // Validate discards
     for (let i = 0; i < discards.length; i++) {
       const discard = discards[i];
       if (discard === null) continue;
-      if (discard === 0) continue; // 杠占位符
+      if (discard === 0) continue; // Kan placeholder
       
       if (typeof discard === 'number') {
         if (discard !== 60 && !isValidTileId(discard)) {
@@ -389,7 +389,7 @@ export function validateRoundLog(
         }
       } else if (typeof discard === 'string') {
         errors.push(...validateRiichiString(discard, `${seatName}.discards[${i}]`));
-        // 从立直字符串中提取牌
+        // Extract tile from riichi string
         const tile = parseInt(discard.slice(1), 10);
         if (tile !== 60 && isValidTileId(tile)) {
           allTiles.push(tile);
@@ -397,11 +397,11 @@ export function validateRoundLog(
       }
     }
     
-    // 验证摸牌/舍牌数组长度一致性
+    // Validate draw/discard array length consistency
     const drawCount = draws.filter((d) => d !== null).length;
     const discardCount = discards.filter((d) => d !== null && d !== 0).length;
     
-    // 允许一定的差异（因为和牌/流局时可能不打牌）
+    // Allow some difference (may not discard on win/exhaustive draw)
     if (Math.abs(drawCount - discardCount) > 1) {
       warnings.push({
         field: `${seatName}`,
@@ -411,7 +411,7 @@ export function validateRoundLog(
     }
   }
   
-  // 6. 验证牌数量
+  // 6. Validate tile count
   errors.push(...validateTileCount(allTiles, rule));
   
   return {
@@ -426,13 +426,13 @@ export function validateRoundLog(
 // ==========================================
 
 /**
- * 验证 GeneratorInput
+ * Validate GeneratorInput
  */
 export function validateGeneratorInput(input: GeneratorInput): ValidationResult {
   const errors: ValidationError[] = [];
   const warnings: ValidationError[] = [];
   
-  // 1. 验证 heroSeat
+  // 1. Validate heroSeat
   if (input.heroSeat < 0 || input.heroSeat > 3) {
     errors.push({
       field: 'heroSeat',
@@ -441,7 +441,7 @@ export function validateGeneratorInput(input: GeneratorInput): ValidationResult 
     });
   }
   
-  // 2. 验证 hero 的手牌存在
+  // 2. Validate hero's hand exists
   const heroBaseIdx = 4 + input.heroSeat * 3;
   const heroHaipai = input.roundLog[heroBaseIdx] as TileId[];
   
@@ -453,7 +453,7 @@ export function validateGeneratorInput(input: GeneratorInput): ValidationResult 
     });
   }
   
-  // 3. 验证 playerEvents
+  // 3. Validate playerEvents
   if (!Array.isArray(input.playerEvents) || input.playerEvents.length !== 4) {
     errors.push({
       field: 'playerEvents',
@@ -468,7 +468,7 @@ export function validateGeneratorInput(input: GeneratorInput): ValidationResult 
       for (let i = 0; i < events.length; i++) {
         const event = events[i];
         
-        // 验证事件类型
+        // Validate event type
         const validTypes = ['CHI', 'PON', 'MINKAN', 'ANKAN', 'KAKAN', 'RIICHI'];
         if (!validTypes.includes(event.type)) {
           errors.push({
@@ -478,7 +478,7 @@ export function validateGeneratorInput(input: GeneratorInput): ValidationResult 
           });
         }
         
-        // 验证吃/碰/杠必须有 callTarget（暗杠除外）
+        // Validate chi/pon/kan must have callTarget (except ankan)
         if (['CHI', 'PON', 'MINKAN', 'KAKAN'].includes(event.type)) {
           if (event.callTarget === undefined) {
             errors.push({
@@ -489,7 +489,7 @@ export function validateGeneratorInput(input: GeneratorInput): ValidationResult 
           }
         }
         
-        // 验证吃必须有 callMelds
+        // Validate chi must have callMelds
         if (event.type === 'CHI' && !event.callMelds) {
           errors.push({
             field: `${seatName}.events[${i}].callMelds`,
@@ -498,7 +498,7 @@ export function validateGeneratorInput(input: GeneratorInput): ValidationResult 
           });
         }
         
-        // 验证暗杠必须有 callMelds（4张）
+        // Validate ankan must have callMelds (4 tiles)
         if (event.type === 'ANKAN') {
           if (!event.callMelds || event.callMelds.length !== 4) {
             errors.push({
@@ -509,7 +509,7 @@ export function validateGeneratorInput(input: GeneratorInput): ValidationResult 
           }
         }
         
-        // 验证立直必须有 discardTile
+        // Validate riichi must have discardTile
         if (event.type === 'RIICHI' && event.discardTile === undefined) {
           errors.push({
             field: `${seatName}.events[${i}].discardTile`,
@@ -517,7 +517,7 @@ export function validateGeneratorInput(input: GeneratorInput): ValidationResult 
             value: event,
           });
         }
-        // 验证立直必须指定 turn
+        // Validate riichi must specify turn
         if (event.type === 'RIICHI' && event.turn === undefined) {
           errors.push({
             field: `${seatName}.events[${i}].turn`,
@@ -529,7 +529,7 @@ export function validateGeneratorInput(input: GeneratorInput): ValidationResult 
     }
   }
   
-  // 4. 验证 roundLog
+  // 4. Validate roundLog
   const roundLogResult = validateRoundLog(input.roundLog, input.rule);
   errors.push(...roundLogResult.errors);
   warnings.push(...roundLogResult.warnings);
@@ -546,21 +546,21 @@ export function validateGeneratorInput(input: GeneratorInput): ValidationResult 
 // ==========================================
 
 /**
- * 快速验证 RoundLog
+ * Quick validate RoundLog
  */
 export function isValidRoundLog(roundLog: RoundLog, rule: TenhouRule): boolean {
   return validateRoundLog(roundLog, rule).valid;
 }
 
 /**
- * 快速验证 GeneratorInput
+ * Quick validate GeneratorInput
  */
 export function isValidGeneratorInput(input: GeneratorInput): boolean {
   return validateGeneratorInput(input).valid;
 }
 
 /**
- * 格式化验证结果为可读字符串
+ * Format validation result as readable string
  */
 export function formatValidationResult(result: ValidationResult): string {
   const lines: string[] = [];

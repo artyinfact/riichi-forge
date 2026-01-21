@@ -1,0 +1,339 @@
+# Tenhou Log JSON Format Specification
+
+## Overall Structure
+
+```json
+{
+  "title": ["Room Name", "Timestamp GMT"],
+  "name": ["PlayerA", "PlayerB", "PlayerC", "PlayerD"],
+  "rule": {"disp": "Room Name", "aka53": 1, "aka52": 1, "aka51": 1},
+  "log": [[ ... ]]
+}
+```
+
+### Field Descriptions
+- **title**: [Room name, GMT timestamp]
+- **name**: Player names in seat order [East, South, West, North]
+- **rule**: Game rules
+  - `disp`: Display name
+  - `aka51/52/53`: Red dora count (0-4, typically 1=enabled)
+  - `aka`: Shorthand when all three are the same value
+- **log**: Array of rounds
+
+---
+
+## Log Array Internal Structure
+
+```json
+[
+  [round, honba, riichi_sticks],
+  [east_points, south_points, west_points, north_points],
+  [dora_indicators],
+  [ura_dora_indicators],
+  [east_haipai], [east_draws], [east_discards],
+  [south_haipai], [south_draws], [south_discards],
+  [west_haipai], [west_draws], [west_discards],
+  [north_haipai], [north_draws], [north_discards],
+  [result_type, score_changes, result_info, ...]
+]
+```
+
+### Result (Last Element) Structure
+
+The last element varies by result type:
+
+#### Win Result (和了)
+For each winner, the result contains pairs of `[score_changes, result_info]`:
+
+**Tsumo (自摸):**
+```json
+["和了", [score_changes], [winner, winner, winner, point_string, yaku1, yaku2, ...]]
+```
+
+**Ron (荣和):**
+```json
+["和了", [score_changes], [winner, loser, winner, point_string, yaku1, yaku2, ...]]
+```
+
+**Multiple Ron (Double/Triple Ron):**
+```json
+["和了", [score_changes1], [winner1, loser, winner1, point_string, ...], [score_changes2], [winner2, loser, winner2, point_string, ...]]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **result_type** | string | `"和了"` (win), `"流局"` (draw), `"全員聴牌"` (all tenpai), etc. |
+| **score_changes** | array | Score changes `[east_delta, south_delta, west_delta, north_delta]` |
+| **result_info[0]** | number | Winner's seat (0=East, 1=South, 2=West, 3=North) |
+| **result_info[1]** | number | Target seat (same as winner for tsumo, ron target for ron) |
+| **result_info[2]** | number | Winner's seat (redundant, same as [0]) |
+| **result_info[3]** | string | Point string (e.g., `"30符2飜2000点"`, `"満貫8000点"`) |
+| **result_info[4+]** | string | Yaku list and dora (e.g., `"立直(1飜)"`, `"ドラ(2飜)"`) |
+
+#### Examples:
+
+**Tsumo Win (自摸和了):**
+```json
+["和了", [-2000, 4000, -1000, -1000], [1, 1, 1, "30符3飜1000-2000点", "立直(1飜)", "ドラ(1飜)", "門前清自摸和(1飜)"]]
+```
+- South (seat 1) wins by closed hand tsumo
+- 30符3飜 non-dealer tsumo: dealer pays 2000, others pay 1000 each → total 4000
+- `[1, 1, 1, ...]` = winner is South, target is South (tsumo)
+
+**Ron Win (荣和):**
+```json
+["和了", [0, 3900, 0, -3900], [1, 3, 1, "30符2飜3900点", "立直(1飜)", "平和(1飜)"]]
+```
+- South (seat 1) wins by ron from North (seat 3)
+- `[1, 3, 1, ...]` = winner is South, target is North (ron)
+
+**Exhaustive Draw (流局):**
+```json
+["流局", [1500, 1500, -1500, -1500]]
+```
+
+**All Players Tenpai:**
+```json
+["全員聴牌"]
+```
+
+**All Players Not Tenpai:**
+```json
+["全員不聴"]
+```
+
+**Special Draws:**
+- `"九種九牌"` - Nine different terminals/honors
+- `"三家和了"` - Three players ron
+- `"四風連打"` - Four wind discards
+- `"四家立直"` - Four riichi declarations
+- `"四槓散了"` - Four kan abortive draw
+- `"流し満貫"` - Nagashi mangan
+
+---
+
+## Tile Number Encoding
+
+| Suit | Code Range | Examples |
+|------|------------|----------|
+| **Characters (m/萬)** | 11-19 | 1m=11, 5m=15, 9m=19 |
+| **Circles (p/筒)** | 21-29 | 1p=21, 5p=25, 9p=29 |
+| **Bamboo (s/索)** | 31-39 | 1s=31, 5s=35, 9s=39 |
+| **Honors (z/字)** | 41-47 | East=41, South=42, West=43, North=44, White=45, Green=46, Red=47 |
+| **Red Dora (赤)** | 51-53 | Red 5m=51, Red 5p=52, Red 5s=53 |
+
+---
+
+## Round Number Encoding
+
+| Round | Code |
+|-------|------|
+| East 1 | 0 |
+| East 2 | 1 |
+| East 3 | 2 |
+| East 4 | 3 |
+| South 1 | 4 |
+| South 2 | 5 |
+| South 3 | 6 |
+| South 4 | 7 |
+| West 1 | 8 |
+| West 2 | 9 |
+| West 3 | 10 |
+| West 4 | 11 |
+
+---
+
+## Discard Special Encoding
+
+| Action | Code | Description |
+|--------|------|-------------|
+| **Tsumogiri (d)** | `60` | Discard the tile just drawn |
+| **Riichi hand discard (r)** | `"r15"` | Declare riichi discarding 5m(15) |
+| **Riichi tsumogiri (dr)** | `"r60"` | Declare riichi with tsumogiri |
+| **After kan placeholder** | `0` | Placeholder before kan replacement draw |
+
+---
+
+## Call (Naki) Encoding Format
+
+### Position Index Reference
+The position of the call letter in the string indicates who the tile was called from:
+- **Index 0**: Kamicha (上家, player to the left)
+- **Index 2**: Toimen (対家, player across)  
+- **Index 4 or 6**: Shimocha (下家, player to the right)
+
+### Chi - Chii (c) 吃
+Format: `c` + called tile (2 digits) + hand tile 1 (2 digits) + hand tile 2 (2 digits)
+
+Chi is always from kamicha, so `c` is always at index 0.
+
+**Example**: Chi 2m from kamicha to form 123m → `"c121113"` (called 12, hand has 11 and 13)
+
+**Called tile position variants:**
+- Called lower tile: `"c111213"` (chi 1m, hand has 2m, 3m)
+- Called middle tile: `"c121113"` (chi 2m, hand has 1m, 3m)
+- Called upper tile: `"c131112"` (chi 3m, hand has 1m, 2m)
+
+### Pon (p) 碰
+Position of `p` indicates whose tile was called (0-indexed string position):
+- **Pon from kamicha**: `p` at index 0 → `"p383838"` (pon 8s from kamicha)
+- **Pon from toimen**: `p` at index 2 → `"38p3838"` (pon 8s from toimen)
+- **Pon from shimocha**: `p` at index 4 → `"3838p38"` (pon 8s from shimocha)
+
+### Minkan - Open Kan (m) 明槓
+Position of `m` indicates whose tile was called:
+- **Kan from kamicha**: `m` at index 0 → `"m38383838"`
+- **Kan from toimen**: `m` at index 2 → `"38m383838"`
+- **Kan from shimocha**: `m` at index 6 → `"383838m38"`
+
+### Ankan - Closed Kan (a) 暗槓
+Format: 3 tiles + `a` + 4th tile (a is always at index 6)
+
+**Example**: Ankan 5m → `"151515a51"` (with red 5m) or `"151515a15"` (without red)
+
+### Kakan - Added Kan (k) 加槓
+Position of `k` matches the original pon position:
+- Original pon from kamicha `"p383838"` → Kakan: `"k38383838"` (k at index 0)
+- Original pon from toimen `"38p3838"` → Kakan: `"38k383838"` (k at index 2)
+- Original pon from shimocha `"3838p38"` → Kakan: `"3838k3838"` (k at index 4)
+
+---
+
+## Complete Example (Real Match: 天鳳名人戦)
+
+This is a real game log from **第二期 天鳳名人戦** (2nd Tenhou Meijin-sen) featuring:
+- **Chi (c)**: South and North both make chi calls
+- **Pon (p)**: North pons 8p
+- **Tsumogiri (60)**: Multiple instances
+- **Tsumo win**: South wins with Tanyao + Red Dora
+
+```json
+{
+  "title": ["第二期　天鳳名人戦", "第１節　Ａ卓　１戦目"],
+  "name": ["Ⓢ福地誠", "Ⓟ多井隆晴", "Cさん", "Ⓟ石橋伸洋"],
+  "rule": {"disp": "般南喰赤", "aka": 1},
+  "log": [[
+    [1, 0, 0],
+    [28200, 29100, 19900, 22800],
+    [37],
+    [],
+    [11, 11, 12, 17, 23, 24, 26, 29, 31, 31, 35, 39, 41],
+    [44, 36, 14, 43, 32, 23, 45, 39, 31, 35, 41, 46, 34],
+    [29, 39, 41, 60, 31, 32, 31, 60, 60, 14, 11, 45, 11],
+    [12, 15, 16, 22, 24, 24, 27, 29, 34, 35, 41, 44, 47],
+    [51, 34, 36, 37, 42, 21, 47, 17, 13, 36, "c141351", 19, 14, 53],
+    [44, 12, 47, 41, 60, 60, 60, 22, 29, 27, 34, 60, 60],
+    [13, 15, 16, 16, 19, 19, 22, 25, 26, 41, 42, 43, 47],
+    [29, 21, 13, 13, 22, 22, 42, 12, 28, 18, 37, 34, 21],
+    [60, 43, 47, 42, 41, 21, 60, 60, 60, 60, 60, 60, 60],
+    [19, 24, 26, 26, 28, 31, 38, 38, 39, 42, 43, 44, 45],
+    [18, 18, 27, 32, 46, 14, 33, 44, 46, "p181818", 23, "c343233", 46],
+    [42, 31, 44, 39, 43, 19, 46, 60, 60, 14, 26, 45, 60],
+    ["和了", [-2000, 6000, -2000, -2000], [1, 1, 1, "30符3飜2000点∀", "断幺九(1飜)", "赤ドラ(2飜)"]]
+  ]]
+}
+```
+
+### Example Breakdown:
+
+**Round Info:**
+- `[1, 0, 0]` = East 2 (東2局), 0 honba, 0 riichi sticks
+- Starting points: East=28200, South=29100, West=19900, North=22800
+- Dora indicator: 7s (37), Ura dora: none (no riichi win)
+
+**Seat Order:** East → South → West → North → East...
+- Kamicha (上家) = previous player (to your left)
+- Toimen (対家) = player across
+- Shimocha (下家) = next player (to your right)
+
+**East (Ⓢ福地誠):** Normal play, no calls
+- Haipai: [11, 11, 12, 17, 23, 24, 26, 29, 31, 31, 35, 39, 41] (13 tiles)
+- Draws: [44, 36, 14, 43, 32, 23, 45, 39, 31, 35, 41, 46, 34] = **13 draws**
+- Discards: [29, 39, 41, 60, 31, 32, 31, 60, 60, 14, 11, 45, 11] = **13 discards**
+- Discards 14 (4m) on turn 10 ← South chis this later!
+
+**South (Ⓟ多井隆晴):** Chi (c), **Winner by Tsumo**
+- Haipai: [12, 15, 16, 22, 24, 24, 27, 29, 34, 35, 41, 44, 47] (13 tiles)
+- Draws: [51, 34, 36, 37, 42, 21, 47, 17, 13, 36, **"c141351"**, 19, 14, 53] = **14 draws**
+- Discards: [44, 12, 47, 41, 60, 60, 60, 22, 29, 27, 34, 60, 60] = **13 discards**
+- **Chi "c141351"**: Calls 14 (4m) from East with 13 (3m) + 51 (red 5m) from hand → forms 3-4-5m sequence
+- Wins by tsumo on draw 53 (red 5s)!
+- **Tsumo winner**: 14 draws, 13 discards (draws = discards + 1) ✓
+
+**West (Cさん):** Normal play, no calls
+- Haipai: [13, 15, 16, 16, 19, 19, 22, 25, 26, 41, 42, 43, 47] (13 tiles)
+- Draws: [29, 21, 13, 13, 22, 22, 42, 12, 28, 18, 37, 34, 21] = **13 draws**
+- Discards: [60, 43, 47, 42, 41, 21, 60, 60, 60, 60, 60, 60, 60] = **13 discards**
+
+**North (Ⓟ石橋伸洋):** Pon (p), Chi (c) - open hand
+- Haipai: [19, 24, 26, 26, 28, 31, 38, 38, 39, 42, 43, 44, 45] (13 tiles)
+- Draws: [18, 18, 27, 32, 46, 14, 33, 44, 46, **"p181818"**, 23, **"c343233"**, 46] = **13 draws**
+- Discards: [42, 31, 44, 39, 43, 19, 46, 60, 60, 14, 26, 45, 60] = **13 discards**
+- **Pon "p181818"**: Pons 18 (8p) from kamicha (West) - `p` at index 0
+- **Chi "c343233"**: Calls 34 (4s) from kamicha with 32 (2s) + 33 (3s) → forms 2-3-4s sequence
+
+**Result:**
+```json
+["和了", [-2000, 6000, -2000, -2000], [1, 1, 1, "30符3飜2000点∀", "断幺九(1飜)", "赤ドラ(2飜)"]]
+```
+- South (seat 1) wins by **tsumo** (自摸)
+- result_info `[1, 1, 1, ...]`: winner=1, target=1 (same = tsumo), winner=1
+- **30符3飜 tsumo**: Each player pays 2000 → winner gains 6000
+- **Yaku**: 断幺九 (Tanyao, 1飜) + 赤ドラ (Red Dora, 2飜) = 3飜
+- Point format "2000点∀" = 2000 points from ALL players
+
+### Call Encoding Details:
+
+| Call | Format | Breakdown | Source |
+|------|--------|-----------|--------|
+| `"c141351"` | chi | Called 14, hand has 13+51 → 3-4-red5 m | East discards 14 |
+| `"p181818"` | pon | p at index 0 = kamicha | West discards 18 |
+| `"c343233"` | chi | Called 34, hand has 32+33 → 2-3-4 s | West discards 34 |
+
+### Draw/Discard Count Verification:
+| Player | Role | Draws | Discards | Rule |
+|--------|------|-------|----------|------|
+| East | - | 13 | 13 | Equal ✓ |
+| South | Winner | 14 | 13 | Draws = Discards + 1 ✓ |
+| West | - | 13 | 13 | Equal ✓ |
+| North | - | 13 | 13 | Equal ✓ |
+
+### Key Rules Demonstrated:
+- **Tsumogiri (60)**: Discard the tile just drawn
+- **Chi format**: `c` + called_tile + hand_tile1 + hand_tile2
+- **Pon format**: Position of `p` indicates source (index 0 = kamicha)
+- **Tsumo winner**: Has one more draw than discards
+- **Open Tanyao (喰断)**: Rule "般南喰赤" allows tanyao with open hand
+
+---
+
+## Final URL Format
+
+```
+https://tenhou.net/6/#json={"title":...,"name":...,"rule":...,"log":...}
+```
+
+The code outputs to `tenhou_log.txt` file with this URL format.
+
+---
+
+## Summary of All Codes
+
+| Code | Meaning | String Index | Description |
+|------|---------|--------------|-------------|
+| `c` | Chi (chii) | 0 | Always from kamicha |
+| `p` | Pon | 0=kamicha, 2=toimen, 4=shimocha | Position indicates source |
+| `m` | Minkan (open kan) | 0=kamicha, 2=toimen, 6=shimocha | Position indicates source |
+| `a` | Ankan (closed kan) | 6 | Self-draw, always at index 6 |
+| `k` | Kakan (added kan) | 0, 2, or 4 | Matches original pon position |
+| `r` | Riichi declaration | N/A | Prefix to tile number or 60 |
+| `60` | Tsumogiri | N/A | Discard drawn tile |
+| `0` | Placeholder | N/A | After kan, before replacement draw |
+
+### Position Index Quick Reference (0-indexed):
+| Source | Pon (p) | Minkan (m) | Kakan (k) |
+|--------|---------|------------|-----------|
+| Kamicha | 0 | 0 | 0 |
+| Toimen | 2 | 2 | 2 |
+| Shimocha | 4 | 6 | 4 |
+

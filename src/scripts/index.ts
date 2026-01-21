@@ -1,7 +1,7 @@
 /**
- * scripts/index.ts - 脚本入口点
+ * scripts/index.ts - Script entry point
  *
- * 导出所有可用的脚本功能，供外部使用
+ * Exports all available script functionality for external use
  */
 
 export { generate, generateJson, completeRoundLog } from '../core/generator/LogGenerator';
@@ -27,7 +27,7 @@ export type {
 } from '../types';
 
 /**
- * 便捷函数：从残缺输入生成完整的 Tenhou Log JSON 字符串
+ * Convenience function: Generate complete Tenhou Log JSON string from incomplete input
  */
 export function completeAndStringify(
   input: import('../types').GeneratorInput,
@@ -39,10 +39,9 @@ export function completeAndStringify(
 }
 
 /**
- * 便捷函数：生成 Tenhou 播放器 URL
+ * Convenience function: Generate Tenhou player URL
  */
 export function toTenhouUrl(log: import('../types').TenhouLogJson): string {
   const json = JSON.stringify(log);
   return `https://tenhou.net/6/#json=${encodeURIComponent(json)}`;
 }
-

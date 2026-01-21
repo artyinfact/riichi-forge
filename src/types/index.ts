@@ -43,7 +43,7 @@ export interface CallDetails {
  * The reverse solver generates this list
  * 
  * ============================================================
- * IMPORTANT: Kan (杠) Turn Structure in Tenhou Log
+ * IMPORTANT: Kan Turn Structure in Tenhou Log
  * ============================================================
  * 
  * In Tenhou Log format, a Kan operation occupies TWO consecutive "turns":
@@ -70,7 +70,7 @@ export interface CallDetails {
  * ============================================================
  */
 export interface TurnAction {
-  turnNumber: number;      // Turn number (巡目)
+  turnNumber: number;      // Turn number
   actionType: ActionType;  // Main action type for this turn
   
   // === Incoming tile ===
@@ -87,7 +87,7 @@ export interface TurnAction {
   // For KAN turns (Turn A): MUST be 0 (placeholder for rinshan)
   // For rinshan turns (Turn B after kan): the actual discarded tile
   discardTile?: TileId;    // 0 for kan placeholder, actual tile otherwise
-  isTsumogiri?: boolean;   // Whether it's tsumogiri (摸切)
+  isTsumogiri?: boolean;   // Whether it's tsumogiri (discard drawn tile)
   
   // === Riichi section ===
   isRiichiDeclaration?: boolean; // Whether riichi was declared this turn
@@ -135,24 +135,24 @@ export interface PlayerEvent {
  * Call String Format Reference:
  * ============================================================
  * 
- * Chi (吃) - always from kamicha, "c" at index 0:
+ * Chi - always from kamicha, "c" at index 0:
  *   "c" + called_tile + hand_tile1 + hand_tile2
  *   Example: "c141351" = chi 4m, using 3m + red5m from hand
  * 
- * Pon (碰) - "p" position indicates source:
+ * Pon - "p" position indicates source:
  *   Index 0: from kamicha  → "p181818"
  *   Index 2: from toimen   → "18p1818"
  *   Index 4: from shimocha → "1818p18"
  * 
- * Minkan (明槓) - "m" position indicates source:
+ * Minkan (open kan) - "m" position indicates source:
  *   Index 0: from kamicha  → "m38383838"
  *   Index 2: from toimen   → "38m383838"
  *   Index 6: from shimocha → "383838m38"
  * 
- * Ankan (暗槓) - "a" always at index 6:
+ * Ankan (closed kan) - "a" always at index 6:
  *   "151515a15" or "151515a51" (if red 5 involved)
  * 
- * Kakan (加槓) - "k" position matches original pon:
+ * Kakan (added kan) - "k" position matches original pon:
  *   Original "p181818" → Kakan "k18181818"
  *   Original "18p1818" → Kakan "18k181818"
  *   Original "1818p18" → Kakan "1818k1818"
@@ -164,7 +164,7 @@ export type TenhouJsonDraw = number | string | null;
 /**
  * Tenhou Log "discard" slot
  * - Normal discard: number (e.g., 11, 25, 47)
- * - Tsumogiri: 60 (discard the tile just drawn, 摸切)
+ * - Tsumogiri: 60 (discard the tile just drawn)
  * - Riichi declaration: string (e.g., "r15" for hand discard, "r60" for tsumogiri riichi)
  * - Kan placeholder: 0 (CRITICAL: must appear after kan declaration, before rinshan draw)
  * - Unknown (for input): null
@@ -227,7 +227,7 @@ export type WinInfo = [number, number, number, string, ...string[]];
 /**
  * Result block - variable structure depending on result type
  * 
- * Win (和了):
+ * Win (agari):
  * - Tsumo: ["和了", ScoreChanges, WinInfo]
  * - Ron: ["和了", ScoreChanges, WinInfo]
  * - Double/Triple Ron: ["和了", ScoreChanges, WinInfo, ScoreChanges, WinInfo, ...]
@@ -297,16 +297,16 @@ export type RoundLog = [
  * 
  * The `roundLog` field uses RoundLog structure with these conventions:
  * 
- * 1. haipai (手牌):
+ * 1. haipai (starting hand):
  *    - Hero: complete 13 tiles
  *    - Opponents: empty array []
  * 
- * 2. draws (摸牌):
+ * 2. draws:
  *    - Known values: normal TileId or call string
  *    - Unknown: `null`
  *    - Array can be truncated (shorter = remaining unknown)
  * 
- * 3. discards (舍牌):
+ * 3. discards:
  *    - Known values: normal TileId, 60, riichi string, or 0
  *    - Unknown: `null`
  *    - Array can be truncated (shorter = remaining unknown)
@@ -338,7 +338,7 @@ export interface GeneratorInput {
 /**
  * Tenhou game rule configuration
  * 
- * Red dora (赤ドラ) settings:
+ * Red dora settings:
  * - If `aka` is defined: applies to all three suits (aka51 = aka52 = aka53 = aka)
  * - If individual `aka51/52/53` are defined: per-suit red dora count
  * - Value range: 0-4 (number of red 5s per suit)
@@ -353,9 +353,9 @@ export interface GeneratorInput {
 export interface TenhouRule {
   disp?: string;     // Display name (e.g., "般南喰赤", "特東喰赤")
   aka?: number;      // Shorthand: red dora count for all suits (0-4)
-  aka51?: number;    // Red 5m (萬子) count (0-4)
-  aka52?: number;    // Red 5p (筒子) count (0-4)
-  aka53?: number;    // Red 5s (索子) count (0-4)
+  aka51?: number;    // Red 5m (man/characters) count (0-4)
+  aka52?: number;    // Red 5p (pin/circles) count (0-4)
+  aka53?: number;    // Red 5s (sou/bamboo) count (0-4)
 }
 
 /**

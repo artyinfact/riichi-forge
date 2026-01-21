@@ -167,19 +167,19 @@ function buildPonString(
   callerSeat: number,
   fromSeat: number
 ): string {
-  const relPos = (fromSeat - callerSeat + 4) % 4; // 1=kamicha, 2=toimen, 3=shimocha
+  const relPos = (fromSeat - callerSeat + 4) % 4; // 3=kamicha, 2=toimen, 1=shimocha
   const t1 = formatTile(meldTiles[0]);
   const t2 = formatTile(meldTiles[1]);
   const tc = formatTile(calledTile);
 
-  if (relPos === 1) {
-    // kamicha
+  if (relPos === 3) {
+    // kamicha (上家)
     return `p${tc}${t1}${t2}`;
   } else if (relPos === 2) {
-    // toimen
+    // toimen (対面)
     return `${tc}p${t1}${t2}`;
   } else {
-    // shimocha (relPos === 3)
+    // shimocha (下家, relPos === 1)
     return `${t1}${t2}p${tc}`;
   }
 }
@@ -197,17 +197,20 @@ function buildMinkanString(
   callerSeat: number,
   fromSeat: number
 ): string {
-  const relPos = (fromSeat - callerSeat + 4) % 4;
+  const relPos = (fromSeat - callerSeat + 4) % 4; // 3=kamicha, 2=toimen, 1=shimocha
   const tc = formatTile(calledTile);
   const t1 = formatTile(meldTiles[0]);
   const t2 = formatTile(meldTiles[1]);
   const t3 = formatTile(meldTiles[2]);
 
-  if (relPos === 1) {
+  if (relPos === 3) {
+    // kamicha (上家)
     return `m${tc}${t1}${t2}${t3}`;
   } else if (relPos === 2) {
+    // toimen (対面)
     return `${tc}m${t1}${t2}${t3}`;
   } else {
+    // shimocha (下家, relPos === 1)
     return `${t1}${t2}${t3}m${tc}`;
   }
 }
@@ -235,17 +238,20 @@ function buildKakanString(
   callerSeat: number,
   originalFromSeat: number
 ): string {
-  const relPos = (originalFromSeat - callerSeat + 4) % 4;
+  const relPos = (originalFromSeat - callerSeat + 4) % 4; // 3=kamicha, 2=toimen, 1=shimocha
   const tc = formatTile(addedTile);
   const t1 = formatTile(originalPonTiles[0]);
   const t2 = formatTile(originalPonTiles[1]);
   const t3 = formatTile(originalPonTiles[2]);
 
-  if (relPos === 1) {
+  if (relPos === 3) {
+    // kamicha (上家)
     return `k${tc}${t1}${t2}${t3}`;
   } else if (relPos === 2) {
+    // toimen (対面)
     return `${tc}k${t1}${t2}${t3}`;
   } else {
+    // shimocha (下家, relPos === 1)
     return `${t1}${t2}k${tc}${t3}`;
   }
 }
@@ -321,6 +327,7 @@ export class NaiveSolver {
   private riichiInfo: Map<number, { turn: number; discards: TileId[] }>;
   private scheduledEvents: ScheduledEvent[];
   private ponRegistry: Map<number, { tiles: TileId[]; fromSeat: number }[]>; // seat -> list of pons
+  private lateEventStartTurn: number;
 
   constructor(input: GeneratorInput) {
     this.input = input;
@@ -328,6 +335,7 @@ export class NaiveSolver {
     this.riichiInfo = new Map();
     this.scheduledEvents = [];
     this.ponRegistry = new Map();
+    this.lateEventStartTurn = 0;
 
     // 初始化牌山
     this.deck = this.initializeDeck();
@@ -377,13 +385,11 @@ export class NaiveSolver {
       }
     }
 
-    // 从 playerEvents 中也移除涉及的牌
+    // 从 playerEvents 中移除 callMelds（副露者手里的牌）
+    // 注意：不移除 callTarget，它来自别人的舍牌，需要留在牌山里被分配
     for (let seat = 0; seat < 4; seat++) {
       const events = playerEvents[seat];
       for (const event of events) {
-        if (event.callTarget !== undefined) {
-          knownTiles.push(event.callTarget);
-        }
         if (event.callMelds) {
           knownTiles.push(...event.callMelds);
         }
@@ -429,7 +435,7 @@ export class NaiveSolver {
   private findEventForTurn(
     seat: number,
     turn: number,
-    lastDiscardBySeat: Map<number, { tile: TileId; turn: number }>
+    lastDiscard: { seat: number; tile: TileId } | null
   ): ScheduledEvent | null {
     for (const event of this.scheduledEvents) {
       if (event.processed) continue;
@@ -442,14 +448,14 @@ export class NaiveSolver {
       if (event.turn === -1) {
         switch (event.type) {
           case 'CHI': {
-            // 吃需要上家刚打出 callTarget
+            if (turn < this.lateEventStartTurn) break;
+            // 吃需要上家打出 callTarget
             const kamicha = (seat + 3) % 4;
-            const lastDiscard = lastDiscardBySeat.get(kamicha);
             if (
               lastDiscard &&
+              lastDiscard.seat === kamicha &&
               event.callTarget !== undefined &&
-              toNormal(lastDiscard.tile) === toNormal(event.callTarget) &&
-              lastDiscard.turn === turn - 1
+              toNormal(lastDiscard.tile) === toNormal(event.callTarget)
             ) {
               event.turn = turn;
               return event;
@@ -458,17 +464,16 @@ export class NaiveSolver {
           }
           case 'PON':
           case 'MINKAN': {
-            // 碰/明杠需要有人刚打出 callTarget
-            for (const [fromSeat, lastDiscard] of lastDiscardBySeat) {
-              if (fromSeat === seat) continue;
-              if (
-                event.callTarget !== undefined &&
-                toNormal(lastDiscard.tile) === toNormal(event.callTarget) &&
-                lastDiscard.turn === turn - 1
-              ) {
-                event.turn = turn;
-                return event;
-              }
+            if (turn < this.lateEventStartTurn) break;
+            // 碰/明杠需要他家打出 callTarget
+            if (
+              lastDiscard &&
+              lastDiscard.seat !== seat &&
+              event.callTarget !== undefined &&
+              toNormal(lastDiscard.tile) === toNormal(event.callTarget)
+            ) {
+              event.turn = turn;
+              return event;
             }
             break;
           }
@@ -499,6 +504,7 @@ export class NaiveSolver {
     return this.deck.pop()!;
   }
 
+
   /**
    * 记录立直
    */
@@ -517,6 +523,129 @@ export class NaiveSolver {
   }
 
   /**
+   * 确保舍牌数组长度足够
+   */
+  private ensureDiscardSlot(discards: TenhouJsonDiscard[], turn: number): void {
+    while (discards.length <= turn) {
+      discards.push(null);
+    }
+  }
+
+  /**
+   * 如果该回合舍牌未知（null），则强制写入目标牌
+   */
+  private setDiscardIfUnknown(
+    roundLog: RoundLog,
+    seat: number,
+    turn: number,
+    tile: TileId
+  ): void {
+    if (turn < 0) return;
+    const baseIdx = 4 + seat * 3;
+    const discards = roundLog[baseIdx + 2] as TenhouJsonDiscard[];
+    this.ensureDiscardSlot(discards, turn);
+    if (discards[turn] === null) {
+      discards[turn] = tile;
+    }
+  }
+
+  /**
+   * 强制从手牌中“消费”一张牌（不足则移除手牌中其他牌，并从牌山扣除该牌）
+   */
+  private forceConsumeTileFromHand(seat: number, tile: TileId, hands: TileId[][]): void {
+    const removed = this.removeFromHand(hands[seat], tile);
+    if (removed) return;
+
+    // 牌不在手里：交换一张手牌和目标牌（保持总牌数不变）
+    if (hands[seat].length > 0) {
+      const poppedTile = hands[seat].pop()!;
+      this.deck.push(poppedTile); // 被移除的牌放回牌山
+    } else {
+      console.warn(`[NaiveSolver] Hand is empty when forcing tile ${tile}`);
+    }
+
+    this.deck = removeTilesFromDeck(this.deck, [tile]);
+  }
+
+  /**
+   * 确保手牌中存在所需的牌（不足则补齐并从牌山移除）
+   */
+  private ensureTilesInHand(seat: number, tiles: TileId[], hands: TileId[][]): void {
+    for (const tile of tiles) {
+      this.forceConsumeTileFromHand(seat, tile, hands);
+    }
+  }
+
+  /**
+   * 在输入中寻找“谁打出了目标牌”的座位
+   */
+  private findSeatByDiscard(
+    roundLog: RoundLog,
+    callerSeat: number,
+    turn: number,
+    target: TileId
+  ): number {
+    for (let seat = 0; seat < 4; seat++) {
+      if (seat === callerSeat) continue;
+      const baseIdx = 4 + seat * 3;
+      const discards = roundLog[baseIdx + 2] as TenhouJsonDiscard[];
+      if (turn >= discards.length) continue;
+      const tile = extractTileFromDiscard(discards[turn]);
+      if (tile !== null && toNormal(tile) === toNormal(target)) {
+        return seat;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * 根据 playerEvents 提前锁定“被吃/碰/明杠”的舍牌
+   */
+  private applyPlannedCallDiscards(roundLog: RoundLog): void {
+    for (const event of this.scheduledEvents) {
+      if (event.turn === -1) continue;
+      if (event.callTarget === undefined) continue;
+      const sourceTurn = event.turn; // 同巡的舍牌
+
+      if (event.type === 'CHI') {
+        const fromSeat = this.getKamicha(event.seat);
+        this.setDiscardIfUnknown(roundLog, fromSeat, sourceTurn, event.callTarget);
+      } else if (event.type === 'PON' || event.type === 'MINKAN') {
+        let fromSeat = this.findSeatByDiscard(
+          roundLog,
+          event.seat,
+          sourceTurn,
+          event.callTarget
+        );
+        if (fromSeat === -1) {
+          fromSeat = this.getKamicha(event.seat);
+        }
+        this.setDiscardIfUnknown(roundLog, fromSeat, sourceTurn, event.callTarget);
+      }
+    }
+  }
+
+  /**
+   * 获取当前座位需要“打出”以触发副露的目标牌
+   */
+  private getPendingCallTargetsForSeat(seat: number): TileId[] {
+    const targets: TileId[] = [];
+    for (const event of this.scheduledEvents) {
+      if (event.processed) continue;
+      if (event.turn !== -1) continue;
+      if (event.callTarget === undefined) continue;
+
+      if (event.type === 'CHI') {
+        const kamicha = this.getKamicha(event.seat);
+        if (seat === kamicha) targets.push(event.callTarget);
+      } else if (event.type === 'PON' || event.type === 'MINKAN') {
+        if (seat !== event.seat) targets.push(event.callTarget);
+      }
+    }
+    return targets;
+  }
+
+  /**
    * 更新现物集合
    */
   private updateGenbutsu(tile: TileId, currentTurn: number): void {
@@ -528,17 +657,77 @@ export class NaiveSolver {
   }
 
   /**
+   * 获取当前座位需要保留的牌（自己副露用 + 需要打出给别人吃碰的 + 立直要打的牌）
+   */
+  private getReservedTilesForSeat(seat: number): TileId[] {
+    const reserved: TileId[] = [];
+    for (const event of this.scheduledEvents) {
+      if (event.processed) continue;
+
+      // 自己副露需要的 callMelds
+      if (event.seat === seat && event.callMelds) {
+        reserved.push(...event.callMelds);
+      }
+
+      // 自己立直需要打的牌
+      if (event.seat === seat && event.type === 'RIICHI' && event.discardTile !== undefined) {
+        reserved.push(event.discardTile);
+      }
+
+      // 需要打出给别人吃碰的 callTarget
+      if (event.callTarget !== undefined && event.turn !== -1) {
+        let fromSeat: number;
+        if (event.type === 'CHI') {
+          fromSeat = this.getKamicha(event.seat);
+        } else if (event.type === 'PON' || event.type === 'MINKAN') {
+          // 简化：假设上家打出
+          fromSeat = this.getKamicha(event.seat);
+        } else {
+          continue;
+        }
+        if (fromSeat === seat) {
+          reserved.push(event.callTarget);
+        }
+      }
+    }
+    return reserved;
+  }
+
+  /**
    * 根据优先级选择舍牌
    */
-  private selectDiscard(hand: TileId[]): TileId {
+  private selectDiscard(hand: TileId[], seat: number): TileId {
     if (hand.length === 0) {
       throw new Error('[NaiveSolver] Hand is empty, cannot select discard');
+    }
+
+    // 获取该座位为未来副露保留的牌
+    const reserved = this.getReservedTilesForSeat(seat);
+    const reservedCounts: Map<number, number> = new Map();
+    for (const t of reserved) {
+      const n = toNormal(t);
+      reservedCounts.set(n, (reservedCounts.get(n) ?? 0) + 1);
+    }
+
+    // 统计手牌中每种牌的数量
+    const handCounts: Map<number, number> = new Map();
+    for (const t of hand) {
+      const n = toNormal(t);
+      handCounts.set(n, (handCounts.get(n) ?? 0) + 1);
     }
 
     const groups: Map<number, TileId[]> = new Map();
 
     for (const tile of hand) {
       const normalTile = toNormal(tile);
+
+      // 如果这张牌是保留牌且手里没有多余的，跳过
+      const neededCount = reservedCounts.get(normalTile) ?? 0;
+      const haveCount = handCounts.get(normalTile) ?? 0;
+      if (neededCount > 0 && haveCount <= neededCount) {
+        continue; // 不能打这张牌
+      }
+
       let priority: number;
 
       if (this.genbutsu.has(normalTile)) {
@@ -551,6 +740,12 @@ export class NaiveSolver {
         groups.set(priority, []);
       }
       groups.get(priority)!.push(tile);
+    }
+
+    // 如果所有牌都被保留，退而求其次打任意一张
+    if (groups.size === 0) {
+      const idx = Math.floor(Math.random() * hand.length);
+      return hand[idx];
     }
 
     const minPriority = Math.min(...groups.keys());
@@ -602,11 +797,72 @@ export class NaiveSolver {
     // 深拷贝 roundLog
     const result: RoundLog = JSON.parse(JSON.stringify(roundLog));
 
-    // 1. 补全对手手牌
+    // 0. 根据 playerEvents 预先锁定必要的舍牌
+    this.applyPlannedCallDiscards(result);
+
+    // 1. 收集每家需要的牌
+    // callMelds: 副露者手里的牌（已从牌山移除，直接添加到 haipai）
+    // callTarget: 打出者需要的牌（还在牌山里，需要移除）
+    // riichiTile: 立直者需要打的牌（还在牌山里，需要移除）
+    const callMeldsBySeats: TileId[][] = [[], [], [], []];
+    const callTargetsBySeats: TileId[][] = [[], [], [], []];
+    const riichiTilesBySeats: TileId[][] = [[], [], [], []];
+
+    for (const event of this.scheduledEvents) {
+      // callMelds 给副露者（已从牌山移除）
+      if (event.callMelds) {
+        callMeldsBySeats[event.seat].push(...event.callMelds);
+      }
+      // callTarget 给打出者（还在牌山）
+      if (event.callTarget !== undefined && event.turn !== -1) {
+        let fromSeat: number;
+        if (event.type === 'CHI') {
+          fromSeat = this.getKamicha(event.seat);
+        } else if (event.type === 'PON' || event.type === 'MINKAN') {
+          fromSeat = this.findSeatByDiscard(result, event.seat, event.turn, event.callTarget);
+          if (fromSeat === -1) {
+            fromSeat = this.getKamicha(event.seat);
+          }
+        } else {
+          continue;
+        }
+        // 只有非 Hero 才需要处理
+        if (fromSeat !== heroSeat) {
+          callTargetsBySeats[fromSeat].push(event.callTarget);
+        }
+      }
+      // 立直打出的牌（还在牌山）
+      if (event.type === 'RIICHI' && event.discardTile !== undefined) {
+        if (event.seat !== heroSeat) {
+          riichiTilesBySeats[event.seat].push(event.discardTile);
+        }
+      }
+    }
+
+    // 2. 补全对手手牌
     for (let seat = 0; seat < 4; seat++) {
       if (seat === heroSeat) continue;
       const baseIdx = 4 + seat * 3;
       const haipai = result[baseIdx] as TileId[];
+
+      // 先放入 callMelds（已从牌山移除，直接添加）
+      for (const tile of callMeldsBySeats[seat]) {
+        haipai.push(tile);
+      }
+
+      // 再放入 callTarget（需要从牌山移除）
+      for (const tile of callTargetsBySeats[seat]) {
+        haipai.push(tile);
+        this.deck = removeTilesFromDeck(this.deck, [tile]);
+      }
+
+      // 放入立直要打的牌（需要从牌山移除）
+      for (const tile of riichiTilesBySeats[seat]) {
+        haipai.push(tile);
+        this.deck = removeTilesFromDeck(this.deck, [tile]);
+      }
+
+      // 随机补满 13 张
       while (haipai.length < 13) {
         haipai.push(this.drawFromDeck());
       }
@@ -623,17 +879,21 @@ export class NaiveSolver {
       }
     }
 
-    // 3. 找出最大巡数
+    // 3. 计算巡数：以四家舍牌数组的最大长度为基准
     let maxTurns = 0;
     for (let seat = 0; seat < 4; seat++) {
       const baseIdx = 4 + seat * 3;
-      const draws = result[baseIdx + 1] as TenhouJsonDraw[];
       const discards = result[baseIdx + 2] as TenhouJsonDiscard[];
-      maxTurns = Math.max(maxTurns, draws.length, discards.length);
+      maxTurns = Math.max(maxTurns, discards.length);
     }
-    if (maxTurns === 0) {
-      maxTurns = 18;
+    const maxExplicitTurn = this.scheduledEvents
+      .filter((event) => event.turn !== -1)
+      .reduce((max, event) => Math.max(max, event.turn), -1);
+    if (maxExplicitTurn >= 0) {
+      maxTurns = Math.max(maxTurns, maxExplicitTurn + 1);
     }
+    // 副露默认靠近终局触发（倒数 4 巡内）
+    this.lateEventStartTurn = Math.max(0, maxTurns - 4);
 
     // 4. 维护每个玩家的当前手牌
     const hands: TileId[][] = [];
@@ -644,6 +904,7 @@ export class NaiveSolver {
 
     // 5. 记录每家最后的舍牌（用于判断副露时机）
     const lastDiscardBySeat: Map<number, { tile: TileId; turn: number }> = new Map();
+    let lastDiscard: { seat: number; tile: TileId } | null = null;
 
     // 6. 按巡处理
     for (let turn = 0; turn < maxTurns; turn++) {
@@ -651,6 +912,8 @@ export class NaiveSolver {
         const baseIdx = 4 + seat * 3;
         const draws = result[baseIdx + 1] as TenhouJsonDraw[];
         const discards = result[baseIdx + 2] as TenhouJsonDiscard[];
+        const pendingTargets =
+          turn >= this.lateEventStartTurn ? this.getPendingCallTargetsForSeat(seat) : [];
 
         // 确保数组足够长
         while (draws.length <= turn) draws.push(null);
@@ -660,7 +923,7 @@ export class NaiveSolver {
         let currentDiscard = discards[turn];
 
         // === 检查是否有 playerEvent 需要触发 ===
-        const event = this.findEventForTurn(seat, turn, lastDiscardBySeat);
+        const event = this.findEventForTurn(seat, turn, lastDiscard);
 
         if (event && !event.processed) {
           // 处理事件
@@ -673,20 +936,17 @@ export class NaiveSolver {
                 currentDraw = callStr;
 
                 // 从手牌中移除用于吃的牌
-                this.removeMultipleFromHand(hands[seat], event.callMelds);
+                this.ensureTilesInHand(seat, event.callMelds, hands);
               }
               event.processed = true;
               break;
             }
             case 'PON': {
               if (event.callTarget !== undefined) {
-                // 找出是谁打的牌
+                // 找出是谁打的牌：优先使用实际触发副露的 lastDiscard
                 let fromSeat = -1;
-                for (const [s, d] of lastDiscardBySeat) {
-                  if (s !== seat && toNormal(d.tile) === toNormal(event.callTarget)) {
-                    fromSeat = s;
-                    break;
-                  }
+                if (lastDiscard && toNormal(lastDiscard.tile) === toNormal(event.callTarget)) {
+                  fromSeat = lastDiscard.seat;
                 }
                 if (fromSeat === -1) fromSeat = this.getKamicha(seat);
 
@@ -706,7 +966,7 @@ export class NaiveSolver {
                 currentDraw = callStr;
 
                 // 从手牌中移除
-                this.removeMultipleFromHand(hands[seat], meldTiles);
+                this.ensureTilesInHand(seat, meldTiles, hands);
 
                 // 记录碰（用于后续加杠）
                 if (!this.ponRegistry.has(seat)) {
@@ -722,12 +982,10 @@ export class NaiveSolver {
             }
             case 'MINKAN': {
               if (event.callTarget !== undefined) {
+                // 找出是谁打的牌：优先使用实际触发副露的 lastDiscard
                 let fromSeat = -1;
-                for (const [s, d] of lastDiscardBySeat) {
-                  if (s !== seat && toNormal(d.tile) === toNormal(event.callTarget)) {
-                    fromSeat = s;
-                    break;
-                  }
+                if (lastDiscard && toNormal(lastDiscard.tile) === toNormal(event.callTarget)) {
+                  fromSeat = lastDiscard.seat;
                 }
                 if (fromSeat === -1) fromSeat = this.getKamicha(seat);
 
@@ -745,7 +1003,7 @@ export class NaiveSolver {
                 draws[turn] = callStr;
                 currentDraw = callStr;
 
-                this.removeMultipleFromHand(hands[seat], meldTiles);
+                this.ensureTilesInHand(seat, meldTiles, hands);
 
                 // 杠的舍牌为 0
                 discards[turn] = 0;
@@ -798,8 +1056,7 @@ export class NaiveSolver {
               break;
             }
             case 'RIICHI': {
-              // 立直会在舍牌时处理
-              event.processed = true;
+              // 立直会在舍牌时处理，这里不标记 processed
               break;
             }
           }
@@ -838,9 +1095,10 @@ export class NaiveSolver {
             const isTsumogiri = drawnTile !== null && toNormal(drawnTile) === toNormal(discardTile);
             discards[turn] = isTsumogiri ? 'r60' : `r${formatTile(discardTile)}`;
 
-            this.removeFromHand(hands[seat], discardTile);
+            this.forceConsumeTileFromHand(seat, discardTile, hands);
             this.updateGenbutsu(discardTile, turn);
             lastDiscardBySeat.set(seat, { tile: discardTile, turn });
+            lastDiscard = { seat, tile: discardTile };
 
             if (!this.riichiInfo.has(seat)) {
               this.recordRiichi(seat, turn, discards);
@@ -848,19 +1106,35 @@ export class NaiveSolver {
             riichiEvent.processed = true;
           } else if (turn > 0 && isKanString(draws[turn - 1])) {
             // 岭上开花后的舍牌
-            const discardTile = this.selectDiscard(hands[seat]);
+            const discardTile = this.selectDiscard(hands[seat], seat);
             discards[turn] = discardTile;
             this.removeFromHand(hands[seat], discardTile);
             this.updateGenbutsu(discardTile, turn);
             lastDiscardBySeat.set(seat, { tile: discardTile, turn });
+            lastDiscard = { seat, tile: discardTile };
           } else if (isKanString(currentDraw)) {
             discards[turn] = 0;
           } else {
-            const discardTile = this.selectDiscard(hands[seat]);
+            let discardTile: TileId | null = null;
+            if (pendingTargets.length > 0) {
+              for (const target of pendingTargets) {
+                const matchIdx = hands[seat].findIndex(
+                  (t) => toNormal(t) === toNormal(target)
+                );
+                if (matchIdx > -1) {
+                  discardTile = hands[seat][matchIdx]!;
+                  break;
+                }
+              }
+            }
+            if (discardTile === null) {
+              discardTile = this.selectDiscard(hands[seat], seat);
+            }
             discards[turn] = discardTile;
             this.removeFromHand(hands[seat], discardTile);
             this.updateGenbutsu(discardTile, turn);
             lastDiscardBySeat.set(seat, { tile: discardTile, turn });
+            lastDiscard = { seat, tile: discardTile };
           }
         } else if (currentDiscard === 0) {
           // 杠占位符
@@ -887,9 +1161,10 @@ export class NaiveSolver {
           }
 
           if (discardTile !== null) {
-            this.removeFromHand(hands[seat], discardTile);
+            this.forceConsumeTileFromHand(seat, discardTile, hands);
             this.updateGenbutsu(discardTile, turn);
             lastDiscardBySeat.set(seat, { tile: discardTile, turn });
+            lastDiscard = { seat, tile: discardTile };
           }
         }
       }

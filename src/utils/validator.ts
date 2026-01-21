@@ -517,6 +517,14 @@ export function validateGeneratorInput(input: GeneratorInput): ValidationResult 
             value: event,
           });
         }
+        // 验证立直必须指定 turn
+        if (event.type === 'RIICHI' && event.turn === undefined) {
+          errors.push({
+            field: `${seatName}.events[${i}].turn`,
+            message: `RIICHI requires explicit turn`,
+            value: event,
+          });
+        }
       }
     }
   }
